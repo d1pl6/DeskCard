@@ -333,6 +333,7 @@ class Application:
         self.config = None
         self.settings_path = None
         self.category_vars = {}
+        self.category_checks = {}
 
     # Header
         self.header = tk.Frame(root, borderwidth=1, relief=tk.GROOVE)
@@ -734,7 +735,7 @@ class Application:
             self._clear_deck()
             self.desk_status.configure(text="Failed to load deck")
             messagebox.showerror("Cannot load deck", str(error), parent=self.root)
-            return
+            return False
 
         self.config = config
         self._set_entry(self.desk_entry, str(config.path))
@@ -743,6 +744,7 @@ class Application:
 
         if config.warnings:
             self._show_warnings(config.warnings)
+        return True
 
     def _clear_deck(self):
         """Forget the current deck and go back to the empty state."""
@@ -756,6 +758,7 @@ class Application:
         for child in self.categories_list.winfo_children():
             child.destroy()
         self.category_vars = {}
+        self.category_checks = {}
         if config is None:
             self.categories_empty.pack(anchor="w", padx=6, pady=(4, 0))
             return
@@ -779,6 +782,16 @@ class Application:
                 fg=self._category_colour(box_var)))
             check.pack(fill="x", padx=6)
             self.category_vars[name] = var
+            self.category_checks[name] = check
+
+    def _set_category(self, name, enabled):
+        """Set one category checkbox from loaded settings."""
+        var = self.category_vars.get(name)
+        check = self.category_checks.get(name)
+        if var is None or check is None:
+            return
+        var.set(1 if enabled else 0)
+        check.configure(fg=self._category_colour(var))
 
     @staticmethod
     def _category_colour(var):
@@ -817,11 +830,155 @@ class Application:
 
     def on_footer_load(self):
         path = filedialog.askopenfilename(
-            title="Select Saved Settings",
-            filetypes=[("JSON", "*.json")]
+            parent=self.root,
+            title="Load settings",
+            filetypes=[("JSON", "*.json"), ("All files", "*")],
         )
         if not path:
             return
+        try:
+            data = _read_settings(path)
+            deck_ok = self._apply_settings(path, data)
+        except ConfigError as error:
+            messagebox.showerror("Cannot load settings", str(error), parent=self.root)
+            return
+        self.settings_path = path
+        if deck_ok:
+            messagebox.showinfo("Settings loaded", f"Loaded from {path}", parent=self.root)
+
+    def _apply_settings(self, path, data):
+        """Validate a settings file first, then apply it; False if the deck failed."""
+        plan = self._plan_settings(path, data)
+
+        for name, value in plan["global"].items():
+            self._set_entry(getattr(self, GLOBAL_FIELDS[name]), value)
+
+        for name, tab in plan["tabs"].items():
+            state = self._tabs[name]
+            if "enabled" in tab:
+                state["enabled_var"].set(1 if tab["enabled"] else 0)
+            if "advanced" in tab:
+                state["advanced_var"].set(1 if tab["advanced"] else 0)
+            for spec, value in tab.get("values", []):
+                self._apply_block(name, spec, value)
+            self._show_advanced(name)
+
+        deck_ok = True
+        if "deck" in plan:
+            if plan["deck"]:
+                deck_ok = self._load_deck(self._resolve_deck_path(plan["deck"], path))
+            else:
+                self._clear_deck()
+
+        for name, enabled in plan["categories"].items():
+            self._set_category(name, enabled)
+        return deck_ok
+
+    def _plan_settings(self, path, data):
+        """Check a settings file against the schema without touching any widget."""
+        def fail(message):
+            raise ConfigError(f"{path}: {message}")
+
+        plan = {"global": {}, "tabs": {}, "categories": {}}
+
+        if "global" in data:
+            raw = data["global"]
+            if not isinstance(raw, dict):
+                fail("global must be an object")
+            for name, value in raw.items():
+                if name not in GLOBAL_FIELDS:
+                    continue
+                if not isinstance(value, str):
+                    fail(f"global.{name} must be a string")
+                plan["global"][name] = value
+
+        if "exercises" in data:
+            raw = data["exercises"]
+            if not isinstance(raw, dict):
+                fail("exercises must be an object")
+            for name, tab_raw in raw.items():
+                if name not in self._tabs:
+                    continue
+                if not isinstance(tab_raw, dict):
+                    fail(f"exercises.{name} must be an object")
+                tab = {}
+                for field in ("enabled", "advanced"):
+                    if field in tab_raw:
+                        if not isinstance(tab_raw[field], bool):
+                            fail(f"exercises.{name}.{field} must be true/false")
+                        tab[field] = tab_raw[field]
+                if "settings" in tab_raw:
+                    values_raw = tab_raw["settings"]
+                    if not isinstance(values_raw, dict):
+                        fail(f"exercises.{name}.settings must be an object")
+                    values = []
+                    for _section, _advanced, blocks in self._tabs[name]["sections"]:
+                        for _block, _pad, _advanced, spec in blocks:
+                            key = spec.get("key")
+                            if key is None or key not in values_raw:
+                                continue
+                            value = self._check_value(
+                                path, name, spec, values_raw[key], fail)
+                            values.append((spec, value))
+                    tab["values"] = values
+                plan["tabs"][name] = tab
+
+        if "deck" in data:
+            deck = data["deck"]
+            if deck is not None and not isinstance(deck, str):
+                fail("deck must be a path string or null")
+            plan["deck"] = deck
+
+        if "categories" in data:
+            raw = data["categories"]
+            if not isinstance(raw, dict):
+                fail("categories must be an object")
+            for name, enabled in raw.items():
+                if not isinstance(enabled, bool):
+                    fail(f"categories.{name} must be true/false")
+                plan["categories"][name] = enabled
+
+        return plan
+
+    @staticmethod
+    def _check_value(path, tab, spec, value, fail):
+        """Validate one setting value against its block kind."""
+        key = spec["key"]
+        kind = spec["kind"]
+        if kind == "checks":
+            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+                fail(f"exercises.{tab}.settings.{key} must be a list of option names")
+        elif kind in ("radios", "entry"):
+            if not isinstance(value, str):
+                fail(f"exercises.{tab}.settings.{key} must be a string")
+        elif kind == "check":
+            if not isinstance(value, bool):
+                fail(f"exercises.{tab}.settings.{key} must be true/false")
+        return value
+
+    def _apply_block(self, prefix, spec, value):
+        """Write one validated setting into its widgets."""
+        kind = spec["kind"]
+        key = spec["key"]
+        if kind == "checks":
+            for option, _text in spec["options"]:
+                getattr(self, f"{prefix}_{key}_{option}_var").set(
+                    1 if option in value else 0)
+        elif kind == "radios":
+            if value in dict(spec["options"]):
+                getattr(self, f"{prefix}_{key}_var").set(value)
+        elif kind == "check":
+            getattr(self, f"{prefix}_{key}_var").set(1 if value else 0)
+        elif kind == "entry":
+            self._set_entry(getattr(self, f"{prefix}_{key}"), value)
+
+    @staticmethod
+    def _resolve_deck_path(deck, settings_path):
+        """Saved deck paths are relative to the settings file when possible."""
+        candidate = Path(deck)
+        if candidate.is_absolute() or candidate.exists():
+            return str(candidate)
+        return str(Path(settings_path).parent / candidate)
 
     def on_footer_save(self):
         path = filedialog.asksaveasfilename(
@@ -891,6 +1048,22 @@ class Application:
 
     def on_footer_start(self):
         pass
+
+
+def _read_settings(path):
+    """Read a settings file as JSON; raises ConfigError when it cannot be read."""
+    file_path = Path(path)
+    try:
+        text = file_path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ConfigError(f"cannot read {file_path}: {error}") from error
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ConfigError(f"{file_path}: invalid JSON: {error}") from error
+    if not isinstance(data, dict):
+        raise ConfigError(f"{file_path}: top level must be an object")
+    return data
 
 
 def main():
