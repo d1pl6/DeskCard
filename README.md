@@ -81,9 +81,9 @@ pip install pygame-ce
 python -m app
 ```
 
-Use `python tools/validate.py` to see missing lines in .json.
+Use `python tools/validator.py` to see missing lines in .json.
 ```bash
-python tools/validate.py all example.json
+python tools/validator.py all example.json
 
 # Output:
 example.json: greetings/1/back/audio: error: no such file: desks/audio/es/greetings/hola.mp3

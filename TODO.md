@@ -6,3 +6,4 @@
 - [ ] Tooltips
 - [ ] Editor
 - [ ] TTS
+- [ ] Loader (UI) should lock text/audio/image if errors occured in loaded desk

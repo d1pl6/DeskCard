@@ -2,6 +2,14 @@
 
 import tkinter as tk
 import webbrowser
+try:
+    from .._version import __version__
+except ImportError:  # started as a script, not as a package
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from src._version import __version__
 
 try:
     from .theme import THEME_ACCENT, THEME_FG, THEME_FONT, THEME_FONT_TITLE
@@ -10,7 +18,7 @@ except ImportError:  # started as a script, not as a package
 
 
 APP_NAME = "DeskCard"
-APP_VERSION = "0.1.0"
+APP_VERSION = __version__
 APP_AUTHOR = "d1pl"
 APP_REPO = "https://github.com/d1pl6/DeskCard"
 APP_LICENSE = "GPL-2.0-or-later"

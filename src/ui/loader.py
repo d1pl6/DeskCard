@@ -1,17 +1,31 @@
+import json
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk
 from tkinter import filedialog
+from tkinter import messagebox
 
 try:
     from .about import APP_NAME, show_about
     from .theme import (
-        THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL, THEME_FONT_TITLE, apply_theme,
+        THEME_FG, THEME_FG_DIM, THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL,
+        THEME_FONT_TITLE, apply_theme,
     )
+    from ..config.loader import load_config
+    from ..errors import ConfigError
 except ImportError:  # started as a script, not as a package
+    import sys
+
     from about import APP_NAME, show_about
     from theme import (
-        THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL, THEME_FONT_TITLE, apply_theme,
+        THEME_FG, THEME_FG_DIM, THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL,
+        THEME_FONT_TITLE, apply_theme,
     )
+
+    # Make the project root importable so the shared config package is found.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from src.config.loader import load_config
+    from src.errors import ConfigError
 
 
 def _scroll_wheel(event):
@@ -125,6 +139,21 @@ WINDOW_SIZE = (950, 900)
 WINDOW_MIN = (760, 520)
 WINDOW_MARGIN = (60, 100)
 
+# Global settings have no defaults in the deck yet, so reset clears them.
+# Keys are the widget attribute names; "" means an empty field.
+GLOBAL_FIELDS = {
+    "delay": "global_time_entry",
+    "session": "global_session_entry",
+    "batch": "global_batch_entry",
+    "jitter": "global_jitter_entry",
+}
+GLOBAL_DEFAULTS = {
+    "global_time_entry": "1m",
+    "global_session_entry": "",
+    "global_batch_entry": "1",
+    "global_jitter_entry": "0",
+}
+
 
 # Setting blocks. Each tab is a list of sections; a block is one labelled
 # control. `advanced` blocks are hidden until the tab's Advanced box is on.
@@ -213,7 +242,7 @@ CHOOSE_SECTIONS = [
             {"key": "other_direction", "label": "Direction", "kind": "radios",
              "options": DIRECTION_OPTIONS, "default": "normal"},
             {"key": "other_score", "label": "Score (0-100)", "kind": "entry",
-             "default": "0"},
+             "default": "0-99"},
             {"key": "other_close_time", "label": "Delay before the window closes (s)",
              "kind": "entry", "advanced": True, "default": "3s"},
             {"key": "other_repeat", "kind": "check", "text": "Repeat until correct",
@@ -246,7 +275,7 @@ CONNECT_SECTIONS = [
             {"key": "other_direction", "label": "Direction", "kind": "radios",
              "options": DIRECTION_OPTIONS, "default": "normal"},
             {"key": "other_score", "label": "Score (0-100)", "kind": "entry",
-             "default": "0"},
+             "default": "0-99"},
             {"key": "other_close_time", "label": "Delay before the window closes (s)",
              "kind": "entry", "advanced": True, "default": "3s"},
             {"key": "other_repeat", "kind": "check", "text": "Repeat until correct",
@@ -281,7 +310,7 @@ WRITE_SECTIONS = [
             {"key": "other_direction", "label": "Direction", "kind": "radios",
              "options": DIRECTION_OPTIONS, "default": "normal"},
             {"key": "other_score", "label": "Score (0-100)", "kind": "entry",
-             "default": "0"},
+             "default": "0-99"},
             {"key": "other_close_time", "label": "Delay before the window closes (s)",
              "kind": "entry", "advanced": True, "default": "3s"},
             {"key": "other_repeat", "kind": "check", "text": "Repeat until correct",
@@ -301,6 +330,9 @@ class Application:
         apply_theme(root)
 
         self._tabs = {}
+        self.config = None
+        self.settings_path = None
+        self.category_vars = {}
 
     # Header
         self.header = tk.Frame(root, borderwidth=1, relief=tk.GROOVE)
@@ -354,14 +386,14 @@ class Application:
         self.desk_entry = tk.Entry(self.desk_middle, borderwidth=1, relief=tk.SOLID)
         self.desk_entry.grid(column=0, row=0, sticky="ew", padx=(0, 10))
 
-        self.desk_browse = tk.Button(self.desk_middle, text="Browse deck", command=self.on_exercise_browse)
+        self.desk_browse = tk.Button(self.desk_middle, text="Browse deck", command=self.on_desk_browse)
         self.desk_browse.grid(column=1, row=0, sticky="e")
 
         self.desk_actions = tk.Frame(self.desk)
         self.desk_actions.grid(column=0, row=2, sticky="ew")
         self.desk_actions.columnconfigure(1, weight=1)
 
-        self.desk_edit = tk.Button(self.desk_actions, text="Edit deck", command=self.on_exercise_edit)
+        self.desk_edit = tk.Button(self.desk_actions, text="Edit deck", command=self.on_desk_edit)
         self.desk_edit.grid(column=0, row=0, sticky="w")
 
         self.desk_status = tk.Label(self.desk_actions, text="No deck selected")
@@ -405,6 +437,7 @@ class Application:
             self._global_setting(row, "Cards in batch:"))
         self.global_jitter_text, self.global_jitter_entry, self.global_jitter_hint, row = (
             self._global_setting(row, "Delay Jitter:"))
+        self._reset_globals()
 
         # Loaded categories
         self.categories_frame = tk.Frame(self.right_column, relief="groove", bd=2)
@@ -415,6 +448,9 @@ class Application:
 
         self.categories_label = self.categories_scroll.label(text="Loaded categories", font=THEME_FONT_BOLD)
         self.categories_label.pack(fill="x", padx=2)
+
+        self.categories_list = tk.Frame(self.categories_scroll.body)
+        self.categories_list.pack(fill="x")
 
         self.categories_empty = self.categories_scroll.label(text="No deck loaded", font=THEME_FONT_SMALL)
         self.categories_empty.pack(anchor="w", padx=6, pady=(4, 0))
@@ -531,7 +567,7 @@ class Application:
             blocks = []
             for spec in section["blocks"]:
                 block, pad, label = self._build_block(section_frame, name, spec)
-                blocks.append((block, pad, bool(spec.get("advanced"))))
+                blocks.append((block, pad, bool(spec.get("advanced")), spec))
                 if label is not None:
                     entry_blocks.append((block, label))
             section_states.append((section_frame, bool(section.get("advanced")), blocks))
@@ -542,7 +578,11 @@ class Application:
             for block, _label in entry_blocks:
                 block.grid_columnconfigure(0, minsize=label_width + 10)
 
-        self._tabs[name] = {"advanced_var": advanced_var, "sections": section_states}
+        self._tabs[name] = {
+            "advanced_var": advanced_var,
+            "enabled_var": enabled_var,
+            "sections": section_states,
+        }
         self._show_advanced(name)
 
     def _build_block(self, parent, prefix, spec):
@@ -609,12 +649,66 @@ class Application:
             if section_advanced and not show:
                 continue
             section_frame.pack(fill="x")
-            for block, _pad, _advanced in blocks:
+            for block, _pad, _advanced, _spec in blocks:
                 block.pack_forget()
-            for block, pad, advanced in blocks:
+            for block, pad, advanced, _spec in blocks:
                 if advanced and not show:
                     continue
                 block.pack(fill="x", pady=pad)
+
+    # Reset
+    def on_footer_reset(self):
+        """Put every setting back to its default and unload the deck, after confirming."""
+        confirmed = messagebox.askyesno(
+            "Reset settings",
+            "Reset all settings to their defaults and unload the current deck?\n\n"
+            "This cannot be undone.",
+            parent=self.root,
+            icon="warning",
+            default="no",
+        )
+        if not confirmed:
+            return
+        for name in self._tabs:
+            self._reset_tab(name)
+        self._reset_globals()
+        self._clear_deck()
+
+    def _reset_globals(self):
+        """Put the global settings back to their defaults."""
+        for attribute, value in GLOBAL_DEFAULTS.items():
+            self._set_entry(getattr(self, attribute), value)
+
+    def _reset_tab(self, name):
+        """Reset one tab: its toggles and every block, from the schema."""
+        state = self._tabs[name]
+        state["enabled_var"].set(0)
+        state["advanced_var"].set(0)
+        for _section_frame, _advanced, blocks in state["sections"]:
+            for _block, _pad, _advanced, spec in blocks:
+                self._reset_block(name, spec)
+        self._show_advanced(name)
+
+    def _reset_block(self, prefix, spec):
+        """Reset one block using the `default` from its schema entry."""
+        kind = spec["kind"]
+        default = spec.get("default", "")
+        if kind == "checks":
+            for option_key, _text in spec["options"]:
+                var = getattr(self, f"{prefix}_{spec['key']}_{option_key}_var")
+                var.set(1 if option_key == default else 0)
+        elif kind == "radios":
+            getattr(self, f"{prefix}_{spec['key']}_var").set(default)
+        elif kind == "check":
+            getattr(self, f"{prefix}_{spec['key']}_var").set(1 if default else 0)
+        elif kind == "entry":
+            self._set_entry(getattr(self, f"{prefix}_{spec['key']}"), default)
+
+    @staticmethod
+    def _set_entry(entry, value):
+        entry.delete(0, "end")
+        if value:
+            entry.insert(0, value)
 
     def on_header_settings(self):
         pass
@@ -622,23 +716,104 @@ class Application:
     def on_header_about(self):
         show_about(self.root)
 
-    def on_exercise_browse(self):
+    def on_desk_browse(self):
         path = filedialog.askopenfilename(
-            parent=self,
+            parent=self.root,
             title="Choose a deck file",
             filetypes=[("Deck JSON", "*.json"), ("All files", "*")],
         )
         if not path:
             return
+        self._load_deck(path)
 
-    def on_exercise_edit(self):
+    def _load_deck(self, path):
+        """Validate a deck file and show what was loaded; report problems."""
+        try:
+            config = load_config(path)
+        except ConfigError as error:
+            self._clear_deck()
+            self.desk_status.configure(text="Failed to load deck")
+            messagebox.showerror("Cannot load deck", str(error), parent=self.root)
+            return
+
+        self.config = config
+        self._set_entry(self.desk_entry, str(config.path))
+        self._fill_categories(config)
+        self.desk_status.configure(text=self._describe(config))
+
+        if config.warnings:
+            self._show_warnings(config.warnings)
+
+    def _clear_deck(self):
+        """Forget the current deck and go back to the empty state."""
+        self.config = None
+        self._set_entry(self.desk_entry, "")
+        self._fill_categories(None)
+        self.desk_status.configure(text="No deck selected")
+
+    def _fill_categories(self, config):
+        """One checkbox per category: checked means it is used in the session."""
+        for child in self.categories_list.winfo_children():
+            child.destroy()
+        self.category_vars = {}
+        if config is None:
+            self.categories_empty.pack(anchor="w", padx=6, pady=(4, 0))
+            return
+
+        self.categories_empty.pack_forget()
+        for name, category in config.categories.items():
+            if category.enabled:
+                count = sum(1 for card in config.cards.values() if card.category == name)
+            else:
+                count = config.disabled.get(name, 0)
+            var = tk.IntVar(value=1 if category.enabled else 0)
+            check = tk.Checkbutton(
+                self.categories_list,
+                text=f"{name} ({count})",
+                variable=var,
+                font=THEME_FONT,
+                fg=self._category_colour(var),
+                anchor="w", justify="left", wraplength=170,
+            )
+            check.configure(command=lambda box=check, box_var=var: box.configure(
+                fg=self._category_colour(box_var)))
+            check.pack(fill="x", padx=6)
+            self.category_vars[name] = var
+
+    @staticmethod
+    def _category_colour(var):
+        """Checked categories read normally; unchecked ones are dimmed."""
+        return THEME_FG if var.get() else THEME_FG_DIM
+
+    @staticmethod
+    def _describe(config):
+        """One-line summary of a loaded deck for the status label."""
+        cards = len(config)
+        categories = len(config.categories)
+        summary = (
+            f"{cards} card{'s' if cards != 1 else ''} · "
+            f"{categories} categor{'ies' if categories != 1 else 'y'}"
+        )
+        if config.warnings:
+            warnings = len(config.warnings)
+            summary += f" · {warnings} warning{'s' if warnings != 1 else ''}"
+        return summary
+
+    def _show_warnings(self, warnings):
+        """Show validation warnings, truncated if the file has many."""
+        limit = 12
+        prefix = f"{self.config.path}: " if self.config else ""
+        text = "\n".join(warning.removeprefix(prefix) for warning in warnings[:limit])
+        if len(warnings) > limit:
+            text += f"\n…and {len(warnings) - limit} more."
+        messagebox.showwarning("Deck loaded with warnings", text, parent=self.root)
+
+    def on_desk_edit(self):
+        print("TODO")
         pass
 
     def on_footer_quit(self):
         self.root.destroy()
-
-    def on_footer_reset(self):
-        pass
 
     def on_footer_load(self):
         path = filedialog.askopenfilename(
@@ -649,13 +824,81 @@ class Application:
             return
 
     def on_footer_save(self):
-        pass
+        path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Save settings",
+            defaultextension=".json",
+            initialdir=str(Path(self.settings_path).parent) if self.settings_path else None,
+            initialfile=Path(self.settings_path).name if self.settings_path else "settings.json",
+            filetypes=[("JSON", "*.json"), ("All files", "*")],
+        )
+        if not path:
+            return
+        try:
+            Path(path).write_text(
+                json.dumps(self._collect_settings(), indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+        except OSError as error:
+            messagebox.showerror("Cannot save settings", str(error), parent=self.root)
+            return
+        self.settings_path = path
+        messagebox.showinfo("Settings saved", f"Saved to {path}", parent=self.root)
+
+    def _collect_settings(self):
+        """Every visible setting, plus the deck and its category states."""
+        config = self.config
+        return {
+            "$version": 1,
+            "deck": None if config is None else str(config.path),
+            "categories": {
+                name: bool(var.get()) for name, var in self.category_vars.items()
+            },
+            "global": {
+                name: getattr(self, attribute).get()
+                for name, attribute in GLOBAL_FIELDS.items()
+            },
+            "exercises": {name: self._collect_tab(name) for name in self._tabs},
+        }
+
+    def _collect_tab(self, name):
+        """One tab's toggles and block values, keyed by schema key."""
+        state = self._tabs[name]
+        values = {}
+        for _section, _advanced, blocks in state["sections"]:
+            for _block, _pad, _advanced, spec in blocks:
+                key = spec.get("key")
+                if not key:
+                    continue
+                kind = spec["kind"]
+                if kind == "checks":
+                    values[key] = [
+                        option
+                        for option, _text in spec["options"]
+                        if getattr(self, f"{name}_{key}_{option}_var").get()
+                    ]
+                elif kind == "radios":
+                    values[key] = getattr(self, f"{name}_{key}_var").get()
+                elif kind == "check":
+                    values[key] = bool(getattr(self, f"{name}_{key}_var").get())
+                elif kind == "entry":
+                    values[key] = getattr(self, f"{name}_{key}").get()
+        return {
+            "enabled": bool(state["enabled_var"].get()),
+            "advanced": bool(state["advanced_var"].get()),
+            "settings": values,
+        }
 
     def on_footer_start(self):
         pass
 
 
-if __name__ == "__main__":
+def main():
+    """Create the window and run the app; shared by every entry point."""
     root = tk.Tk()
-    app = Application(root)
+    Application(root)
     root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
