@@ -1,4 +1,5 @@
 import json
+import os
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
@@ -7,7 +8,9 @@ from tkinter import messagebox
 
 try:
     from .about import APP_NAME, show_about
+    from .blocks import ExerciseTab, Section
     from .theme import (
+        THEME_ACCENT, THEME_DANGER, THEME_DANGER_HOVER, THEME_FIELD_BG,
         THEME_FG, THEME_FG_DIM, THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL,
         THEME_FONT_TITLE, apply_theme,
     )
@@ -17,7 +20,9 @@ except ImportError:  # started as a script, not as a package
     import sys
 
     from about import APP_NAME, show_about
+    from blocks import ExerciseTab, Section
     from theme import (
+        THEME_ACCENT, THEME_DANGER, THEME_DANGER_HOVER, THEME_FIELD_BG,
         THEME_FG, THEME_FG_DIM, THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL,
         THEME_FONT_TITLE, apply_theme,
     )
@@ -127,19 +132,12 @@ class ScrollableFrame(tk.Frame):
 
 
 # Shared spacing so every tab and panel lines up the same way.
-HINT_PADX = (10, 0)
-SECTION_PADY = (12, 0)
-SUBHEADING_PADY = (10, 0)
-ROW_PADY_TEXT = (8, 0)
-ROW_PADY_FIELD = (6, 0)
-
 # Window sizing. WINDOW_SIZE is preferred, WINDOW_MIN is the smallest usable
 # size; both are clamped to the screen so the window never opens off-screen.
 WINDOW_SIZE = (950, 900)
 WINDOW_MIN = (760, 520)
 WINDOW_MARGIN = (60, 100)
 
-# Global settings have no defaults in the deck yet, so reset clears them.
 # Keys are the widget attribute names; "" means an empty field.
 GLOBAL_FIELDS = {
     "delay": "global_time_entry",
@@ -203,7 +201,7 @@ ANKI_SECTIONS = [
         "advanced": True,
         "blocks": [
             {"kind": "subheading", "text": "Difficulty", "advanced": True},
-            {"key": "answer_time", "label": "Answer time limit (s)",
+            {"key": "answer_time", "label": "Answer time limit",
              "kind": "entry", "hint": "0 = unlimited", "advanced": True, "default": "0"},
         ],
     },
@@ -214,7 +212,7 @@ ANKI_SECTIONS = [
              "options": DIRECTION_OPTIONS, "default": "normal"},
             {"key": "other_score", "label": "Score (0-100)", "kind": "entry",
              "default": "0-99"},
-            {"key": "other_close_time", "label": "Delay before the window closes (s)",
+            {"key": "other_close_time", "label": "Delay before the window closes",
              "kind": "entry", "advanced": True, "default": "3s"},
         ],
     },
@@ -232,7 +230,7 @@ CHOOSE_SECTIONS = [
             {"kind": "subheading", "text": "Difficulty", "advanced": True},
             {"key": "answer_choices", "label": "Answer choices",
              "kind": "entry", "advanced": True, "default": "5"},
-            {"key": "answer_time", "label": "Answer time limit (s)",
+            {"key": "answer_time", "label": "Answer time limit",
              "kind": "entry", "hint": "0 = unlimited", "advanced": True, "default": "0"},
         ],
     },
@@ -243,10 +241,10 @@ CHOOSE_SECTIONS = [
              "options": DIRECTION_OPTIONS, "default": "normal"},
             {"key": "other_score", "label": "Score (0-100)", "kind": "entry",
              "default": "0-99"},
-            {"key": "other_close_time", "label": "Delay before the window closes (s)",
+            {"key": "other_close_time", "label": "Delay before the window closes",
              "kind": "entry", "advanced": True, "default": "3s"},
             {"key": "other_repeat", "kind": "check", "text": "Repeat until correct",
-             "hint": "Closes only after a no-mistake answer", "advanced": True},
+             "hint": "Closes only after a mistake-free answer", "advanced": True},
             {"key": "other_attempts", "label": "Max attempts", "kind": "entry",
              "hint": "Tries allowed before the card is marked wrong", "advanced": True},
         ],
@@ -265,7 +263,7 @@ CONNECT_SECTIONS = [
             {"kind": "subheading", "text": "Difficulty", "advanced": True},
             {"key": "answer_connections", "label": "Number of connections (max 10)",
              "kind": "entry", "advanced": True, "default": "5"},
-            {"key": "answer_time", "label": "Answer time limit (s)",
+            {"key": "answer_time", "label": "Answer time limit",
              "kind": "entry", "hint": "0 = unlimited", "advanced": True, "default": "0"},
         ],
     },
@@ -276,10 +274,10 @@ CONNECT_SECTIONS = [
              "options": DIRECTION_OPTIONS, "default": "normal"},
             {"key": "other_score", "label": "Score (0-100)", "kind": "entry",
              "default": "0-99"},
-            {"key": "other_close_time", "label": "Delay before the window closes (s)",
+            {"key": "other_close_time", "label": "Delay before the window closes",
              "kind": "entry", "advanced": True, "default": "3s"},
             {"key": "other_repeat", "kind": "check", "text": "Repeat until correct",
-             "hint": "Closes only after a no-mistake answer", "advanced": True},
+             "hint": "Closes only after a mistake-free answer", "advanced": True},
             {"key": "other_attempts", "label": "Max attempts", "kind": "entry",
              "hint": "Tries allowed before the card is marked wrong", "advanced": True},
         ],
@@ -300,7 +298,7 @@ WRITE_SECTIONS = [
              "kind": "check"},
             {"key": "highlight_word", "text": "Highlight wrong words",
              "kind": "check"},
-            {"key": "answer_time", "label": "Answer time limit (s)",
+            {"key": "answer_time", "label": "Answer time limit",
              "kind": "entry", "hint": "0 = unlimited", "advanced": True, "default": "0"},
         ],
     },
@@ -311,7 +309,7 @@ WRITE_SECTIONS = [
              "options": DIRECTION_OPTIONS, "default": "normal"},
             {"key": "other_score", "label": "Score (0-100)", "kind": "entry",
              "default": "0-99"},
-            {"key": "other_close_time", "label": "Delay before the window closes (s)",
+            {"key": "other_close_time", "label": "Delay before the window closes",
              "kind": "entry", "advanced": True, "default": "3s"},
             {"key": "other_repeat", "kind": "check", "text": "Repeat until correct",
              "hint": "Closes only after a mistake-free answer", "advanced": True},
@@ -325,7 +323,7 @@ WRITE_SECTIONS = [
 class Application:
     def __init__(self, root):
         self.root = root
-        root.title(f"{APP_NAME}.")
+        root.title(f"{APP_NAME}")
         self._fit_window()
         apply_theme(root)
 
@@ -386,6 +384,8 @@ class Application:
 
         self.desk_entry = tk.Entry(self.desk_middle, borderwidth=1, relief=tk.SOLID)
         self.desk_entry.grid(column=0, row=0, sticky="ew", padx=(0, 10))
+        self.desk_entry.bind("<Return>", self.on_desk_entry_submit)
+        self.desk_entry.bind("<KP_Enter>", self.on_desk_entry_submit)
 
         self.desk_browse = tk.Button(self.desk_middle, text="Browse deck", command=self.on_desk_browse)
         self.desk_browse.grid(column=1, row=0, sticky="e")
@@ -430,13 +430,13 @@ class Application:
         self.global_label.grid(row=0, column=0, columnspan=2, pady=(4, 6))
 
         row = 1
-        self.global_time_text, self.global_time_entry, self.global_time_hint, row = (
+        self.global_time_text, self.global_time_entry, row = (
             self._global_setting(row, "Delay:"))
-        self.global_session_text, self.global_session_entry, _hint, row = (
+        self.global_session_text, self.global_session_entry, row = (
             self._global_setting(row, "Cards in session:"))
-        self.global_batch_text, self.global_batch_entry, _hint, row = (
+        self.global_batch_text, self.global_batch_entry, row = (
             self._global_setting(row, "Cards in batch:"))
-        self.global_jitter_text, self.global_jitter_entry, self.global_jitter_hint, row = (
+        self.global_jitter_text, self.global_jitter_entry, row = (
             self._global_setting(row, "Delay Jitter:"))
         self._reset_globals()
 
@@ -464,10 +464,16 @@ class Application:
         self.footer.pack(fill="x", side="bottom", before=self.main_frame)
         self.footer.columnconfigure(0, weight=1)
 
-        self.footer_quit = tk.Button(self.footer, text="Quit", height=2, command=self.on_footer_quit)
+        self.footer_quit = tk.Button(
+            self.footer, text="Quit", height=2, command=self.on_footer_quit,
+            background=THEME_DANGER, activebackground=THEME_DANGER_HOVER,
+        )
         self.footer_quit.grid(column=0, row=0, sticky="w")
 
-        self.footer_reset = tk.Button(self.footer, text="Reset", height=2, command=self.on_footer_reset)
+        self.footer_reset = tk.Button(
+            self.footer, text="Reset", height=2, command=self.on_footer_reset,
+            background=THEME_DANGER, activebackground=THEME_DANGER_HOVER,
+        )
         self.footer_reset.grid(column=2, row=0, padx=(0, 10))
 
         self.footer_load = tk.Button(self.footer, text="Load settings", height=2, command=self.on_footer_load)
@@ -476,23 +482,30 @@ class Application:
         self.footer_save = tk.Button(self.footer, text="Save settings", height=2, command=self.on_footer_save)
         self.footer_save.grid(column=4, row=0, padx=(0, 10))
 
-        self.footer_start = tk.Button(self.footer, text="Start", height=2, command=self.on_footer_start)
+        # Start stays disabled until a deck is loaded.
+        self.footer_start = tk.Button(
+            self.footer, text="Start", height=2, command=self.on_footer_start,
+            disabledforeground=THEME_FG_DIM,
+        )
         self.footer_start.grid(column=5, row=0)
+        self._set_start_enabled(False)
 
         self._bind_keys()
 
-    def _global_setting(self, row, label_text, hint_text=None):
-        """One Global Settings row; the hint sits under its field so it fits."""
+    def _set_start_enabled(self, enabled):
+        """Start is usable only with a deck loaded; grey it out otherwise."""
+        self.footer_start.configure(
+            state="normal" if enabled else "disabled",
+            background=THEME_ACCENT if enabled else THEME_FIELD_BG,
+        )
+
+    def _global_setting(self, row, label_text):
+        """One Global Settings row"""
         label = tk.Label(self.global_frame, text=label_text, font=THEME_FONT)
         label.grid(row=row, column=0, sticky="w", padx=(2, 4))
         entry = tk.Entry(self.global_frame, width=5)
         entry.grid(row=row, column=1, sticky="w")
-        hint = None
-        if hint_text:
-            hint = tk.Label(self.global_frame, text=hint_text, font=THEME_FONT_SMALL)
-            hint.grid(row=row + 1, column=1, sticky="w")
-            row += 1
-        return label, entry, hint, row + 1
+        return label, entry, row + 1
 
     def _fit_window(self):
         """Size the window to the screen, centre it, and set a sane minimum."""
@@ -513,14 +526,14 @@ class Application:
         )
 
     def _bind_keys(self):
-        """Enter starts the session; Ctrl+1..4 switch exercise tabs."""
-        self.root.bind("<Return>", lambda _event: self.on_footer_start())
-        self.root.bind("<KP_Enter>", lambda _event: self.on_footer_start())
+        """Ctrl+1..4 switch tabs; Enter or a click outside the field loads a typed path."""
         for index in range(len(self.exercise_notebook.tabs())):
             self.root.bind(
                 f"<Control-Key-{index + 1}>",
                 lambda _event, tab=index: self.exercise_notebook.select(tab),
             )
+        # Clicking anywhere else commits whatever is typed in the deck field.
+        self.root.bind_all("<Button-1>", self._on_click_outside_deck_entry, add="+")
 
     # Exercise tabs
     def _add_tab(self, name, title):
@@ -558,104 +571,33 @@ class Application:
         scrollframe.pack(fill="both", expand=True)
         setattr(self, f"{name}_scrollframe", scrollframe)
 
-        section_states = []
-        entry_blocks = []
+        sections = [Section(section) for section in sections]
         for section in sections:
-            section_frame = tk.Frame(scrollframe.body)
-            heading = tk.Label(section_frame, text=section["title"], font=THEME_FONT_BOLD)
-            heading.pack(fill="x", pady=SECTION_PADY)
-
-            blocks = []
-            for spec in section["blocks"]:
-                block, pad, label = self._build_block(section_frame, name, spec)
-                blocks.append((block, pad, bool(spec.get("advanced")), spec))
-                if label is not None:
-                    entry_blocks.append((block, label))
-            section_states.append((section_frame, bool(section.get("advanced")), blocks))
+            section.build(scrollframe.body)
+            for block in section.blocks:
+                for suffix, widget in block.widgets.items():
+                    setattr(self, f"{name}_{suffix}", widget)
 
         # Line up every field with the widest label in the tab.
-        label_width = max((label.winfo_reqwidth() for _block, label in entry_blocks), default=0)
+        label_width = max(
+            (block.label.winfo_reqwidth()
+             for section in sections for block in section.blocks
+             if block.label is not None),
+            default=0,
+        )
         if label_width:
-            for block, _label in entry_blocks:
-                block.grid_columnconfigure(0, minsize=label_width + 10)
+            for section in sections:
+                for block in section.blocks:
+                    if block.label is not None:
+                        block.frame.grid_columnconfigure(0, minsize=label_width + 10)
 
-        self._tabs[name] = {
-            "advanced_var": advanced_var,
-            "enabled_var": enabled_var,
-            "sections": section_states,
-        }
-        self._show_advanced(name)
-
-    def _build_block(self, parent, prefix, spec):
-        """Create one labelled control block; returns (frame, pady, label)."""
-        kind = spec["kind"]
-        block = tk.Frame(parent)
-        pad = ROW_PADY_TEXT if kind in ("checks", "radios") else ROW_PADY_FIELD
-
-        if kind == "subheading":
-            tk.Label(block, text=spec["text"]).grid(row=0, column=0, columnspan=2, sticky="w")
-            return block, SUBHEADING_PADY, None
-
-        if kind in ("checks", "radios"):
-            tk.Label(block, text=spec["label"]).grid(row=0, column=0, columnspan=2, sticky="w")
-            options = tk.Frame(block)
-            options.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
-            group_var = tk.StringVar(value=spec.get("default", "")) if kind == "radios" else None
-            if group_var is not None:
-                setattr(self, f"{prefix}_{spec['key']}_var", group_var)
-            for column, (option_key, text) in enumerate(spec["options"]):
-                if group_var is None:
-                    option_var = tk.IntVar(value=1 if option_key == spec.get("default") else 0)
-                    widget = tk.Checkbutton(options, text=text, variable=option_var)
-                    setattr(self, f"{prefix}_{spec['key']}_{option_key}_var", option_var)
-                else:
-                    widget = tk.Radiobutton(options, text=text, variable=group_var, value=option_key)
-                widget.grid(row=0, column=column, sticky="w")
-                setattr(self, f"{prefix}_{spec['key']}_{option_key}", widget)
-            return block, pad, None
-
-        if kind == "check":
-            check_var = tk.IntVar(value=1 if spec.get("default") else 0)
-            check = tk.Checkbutton(block, text=spec["text"], variable=check_var)
-            check.grid(row=0, column=0, sticky="w")
-            setattr(self, f"{prefix}_{spec['key']}", check)
-            setattr(self, f"{prefix}_{spec['key']}_var", check_var)
-            if spec.get("hint"):
-                tk.Label(block, text=spec["hint"], font=THEME_FONT_SMALL).grid(
-                    row=0, column=1, sticky="w", padx=HINT_PADX)
-            return block, pad, None
-
-        # kind == "entry"
-        label = tk.Label(block, text=spec["label"])
-        label.grid(row=0, column=0, sticky="w")
-        entry = tk.Entry(block)
-        if spec.get("width"):
-            entry.configure(width=spec["width"])
-        if spec.get("default") is not None:
-            entry.insert(0, spec["default"])
-        entry.grid(row=0, column=1, sticky="w")
-        setattr(self, f"{prefix}_{spec['key']}", entry)
-        if spec.get("hint"):
-            tk.Label(block, text=spec["hint"], font=THEME_FONT_SMALL).grid(
-                row=0, column=2, sticky="w", padx=HINT_PADX)
-        return block, pad, label
+        state = ExerciseTab(name, enabled_var, advanced_var, sections, scrollframe)
+        self._tabs[name] = state
+        state.show_advanced()
 
     def _show_advanced(self, name):
         """Re-pack a tab in order, hiding advanced sections and blocks."""
-        state = self._tabs[name]
-        show = bool(state["advanced_var"].get())
-        for section_frame, _advanced, _blocks in state["sections"]:
-            section_frame.pack_forget()
-        for section_frame, section_advanced, blocks in state["sections"]:
-            if section_advanced and not show:
-                continue
-            section_frame.pack(fill="x")
-            for block, _pad, _advanced, _spec in blocks:
-                block.pack_forget()
-            for block, pad, advanced, _spec in blocks:
-                if advanced and not show:
-                    continue
-                block.pack(fill="x", pady=pad)
+        self._tabs[name].show_advanced()
 
     # Reset
     def on_footer_reset(self):
@@ -682,28 +624,7 @@ class Application:
 
     def _reset_tab(self, name):
         """Reset one tab: its toggles and every block, from the schema."""
-        state = self._tabs[name]
-        state["enabled_var"].set(0)
-        state["advanced_var"].set(0)
-        for _section_frame, _advanced, blocks in state["sections"]:
-            for _block, _pad, _advanced, spec in blocks:
-                self._reset_block(name, spec)
-        self._show_advanced(name)
-
-    def _reset_block(self, prefix, spec):
-        """Reset one block using the `default` from its schema entry."""
-        kind = spec["kind"]
-        default = spec.get("default", "")
-        if kind == "checks":
-            for option_key, _text in spec["options"]:
-                var = getattr(self, f"{prefix}_{spec['key']}_{option_key}_var")
-                var.set(1 if option_key == default else 0)
-        elif kind == "radios":
-            getattr(self, f"{prefix}_{spec['key']}_var").set(default)
-        elif kind == "check":
-            getattr(self, f"{prefix}_{spec['key']}_var").set(1 if default else 0)
-        elif kind == "entry":
-            self._set_entry(getattr(self, f"{prefix}_{spec['key']}"), default)
+        self._tabs[name].reset()
 
     @staticmethod
     def _set_entry(entry, value):
@@ -727,13 +648,38 @@ class Application:
             return
         self._load_deck(path)
 
+    def on_desk_entry_submit(self, _event=None):
+        """Enter in the deck field loads the typed path."""
+        self._load_typed_deck()
+        return "break"
+
+    def _on_click_outside_deck_entry(self, event):
+        """Clicking anywhere but the field (and Browse) commits the typed path."""
+        widget = event.widget
+        if widget is None or widget.winfo_toplevel() is not self.root:
+            return
+        if str(widget).startswith(str(self.desk_entry)) or widget is self.desk_browse:
+            return
+        self._load_typed_deck()
+
+    def _load_typed_deck(self):
+        """Load the deck field's path when it is non-empty and differs from the loaded one."""
+        text = self.desk_entry.get().strip()
+        if not text or text == self._loaded_deck_text():
+            return
+        self._load_deck(text)
+
+    def _loaded_deck_text(self):
+        """The deck field's canonical value for the deck that is actually loaded."""
+        return "" if self.config is None else str(self.config.path)
+
     def _load_deck(self, path):
         """Validate a deck file and show what was loaded; report problems."""
         try:
             config = load_config(path)
         except ConfigError as error:
-            self._clear_deck()
-            self.desk_status.configure(text="Failed to load deck")
+            # Keep the deck that is already loaded: a typo must not throw it away.
+            self._set_entry(self.desk_entry, self._loaded_deck_text())
             messagebox.showerror("Cannot load deck", str(error), parent=self.root)
             return False
 
@@ -741,6 +687,7 @@ class Application:
         self._set_entry(self.desk_entry, str(config.path))
         self._fill_categories(config)
         self.desk_status.configure(text=self._describe(config))
+        self._set_start_enabled(True)
 
         if config.warnings:
             self._show_warnings(config.warnings)
@@ -752,6 +699,7 @@ class Application:
         self._set_entry(self.desk_entry, "")
         self._fill_categories(None)
         self.desk_status.configure(text="No deck selected")
+        self._set_start_enabled(False)
 
     def _fill_categories(self, config):
         """One checkbox per category: checked means it is used in the session."""
@@ -822,7 +770,7 @@ class Application:
         messagebox.showwarning("Deck loaded with warnings", text, parent=self.root)
 
     def on_desk_edit(self):
-        print("TODO")
+        # TODO
         pass
 
     def on_footer_quit(self):
@@ -856,12 +804,12 @@ class Application:
         for name, tab in plan["tabs"].items():
             state = self._tabs[name]
             if "enabled" in tab:
-                state["enabled_var"].set(1 if tab["enabled"] else 0)
+                state.enabled_var.set(1 if tab["enabled"] else 0)
             if "advanced" in tab:
-                state["advanced_var"].set(1 if tab["advanced"] else 0)
-            for spec, value in tab.get("values", []):
-                self._apply_block(name, spec, value)
-            self._show_advanced(name)
+                state.advanced_var.set(1 if tab["advanced"] else 0)
+            for block, value in tab.get("values", []):
+                block.apply(value)
+            state.show_advanced()
 
         deck_ok = True
         if "deck" in plan:
@@ -912,14 +860,12 @@ class Application:
                     if not isinstance(values_raw, dict):
                         fail(f"exercises.{name}.settings must be an object")
                     values = []
-                    for _section, _advanced, blocks in self._tabs[name]["sections"]:
-                        for _block, _pad, _advanced, spec in blocks:
-                            key = spec.get("key")
-                            if key is None or key not in values_raw:
-                                continue
-                            value = self._check_value(
-                                path, name, spec, values_raw[key], fail)
-                            values.append((spec, value))
+                    for block in self._tabs[name].blocks:
+                        if block.key not in values_raw:
+                            continue
+                        value = block.check(
+                            values_raw[block.key], self._value_fail(path, name, block.key))
+                        values.append((block, value))
                     tab["values"] = values
                 plan["tabs"][name] = tab
 
@@ -941,44 +887,36 @@ class Application:
         return plan
 
     @staticmethod
-    def _check_value(path, tab, spec, value, fail):
-        """Validate one setting value against its block kind."""
-        key = spec["key"]
-        kind = spec["kind"]
-        if kind == "checks":
-            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-                fail(f"exercises.{tab}.settings.{key} must be a list of option names")
-        elif kind in ("radios", "entry"):
-            if not isinstance(value, str):
-                fail(f"exercises.{tab}.settings.{key} must be a string")
-        elif kind == "check":
-            if not isinstance(value, bool):
-                fail(f"exercises.{tab}.settings.{key} must be true/false")
-        return value
-
-    def _apply_block(self, prefix, spec, value):
-        """Write one validated setting into its widgets."""
-        kind = spec["kind"]
-        key = spec["key"]
-        if kind == "checks":
-            for option, _text in spec["options"]:
-                getattr(self, f"{prefix}_{key}_{option}_var").set(
-                    1 if option in value else 0)
-        elif kind == "radios":
-            if value in dict(spec["options"]):
-                getattr(self, f"{prefix}_{key}_var").set(value)
-        elif kind == "check":
-            getattr(self, f"{prefix}_{key}_var").set(1 if value else 0)
-        elif kind == "entry":
-            self._set_entry(getattr(self, f"{prefix}_{key}"), value)
+    def _value_fail(path, tab, key):
+        """A fail() for one setting, so blocks only describe the type error."""
+        def fail(why):
+            raise ConfigError(f"{path}: exercises.{tab}.settings.{key} {why}")
+        return fail
 
     @staticmethod
     def _resolve_deck_path(deck, settings_path):
-        """Saved deck paths are relative to the settings file when possible."""
+        """Deck paths in a settings file are relative to that file, then to cwd."""
         candidate = Path(deck)
-        if candidate.is_absolute() or candidate.exists():
+        if candidate.is_absolute():
             return str(candidate)
-        return str(Path(settings_path).parent / candidate)
+        beside = Path(settings_path).parent / candidate
+        if beside.exists():
+            return str(beside)
+        return str(candidate)
+
+    @staticmethod
+    def _deck_for_settings(deck_path, settings_path):
+        """Save the deck relative to the settings file when it lives inside that folder."""
+        deck = Path(deck_path).resolve()
+        if settings_path is None:
+            return str(deck)
+        try:
+            relative = os.path.relpath(deck, Path(settings_path).resolve().parent)
+        except ValueError:  # different drive on Windows
+            return str(deck)
+        if relative == os.pardir or relative.startswith(os.pardir + os.sep):
+            return str(deck)
+        return relative
 
     def on_footer_save(self):
         path = filedialog.asksaveasfilename(
@@ -993,7 +931,7 @@ class Application:
             return
         try:
             Path(path).write_text(
-                json.dumps(self._collect_settings(), indent=2, ensure_ascii=False) + "\n",
+                json.dumps(self._collect_settings(path), indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
         except OSError as error:
@@ -1002,12 +940,11 @@ class Application:
         self.settings_path = path
         messagebox.showinfo("Settings saved", f"Saved to {path}", parent=self.root)
 
-    def _collect_settings(self):
+    def _collect_settings(self, target_path=None):
         """Every visible setting, plus the deck and its category states."""
         config = self.config
         return {
-            "$version": 1,
-            "deck": None if config is None else str(config.path),
+            "deck": None if config is None else self._deck_for_settings(config.path, target_path),
             "categories": {
                 name: bool(var.get()) for name, var in self.category_vars.items()
             },
@@ -1015,35 +952,7 @@ class Application:
                 name: getattr(self, attribute).get()
                 for name, attribute in GLOBAL_FIELDS.items()
             },
-            "exercises": {name: self._collect_tab(name) for name in self._tabs},
-        }
-
-    def _collect_tab(self, name):
-        """One tab's toggles and block values, keyed by schema key."""
-        state = self._tabs[name]
-        values = {}
-        for _section, _advanced, blocks in state["sections"]:
-            for _block, _pad, _advanced, spec in blocks:
-                key = spec.get("key")
-                if not key:
-                    continue
-                kind = spec["kind"]
-                if kind == "checks":
-                    values[key] = [
-                        option
-                        for option, _text in spec["options"]
-                        if getattr(self, f"{name}_{key}_{option}_var").get()
-                    ]
-                elif kind == "radios":
-                    values[key] = getattr(self, f"{name}_{key}_var").get()
-                elif kind == "check":
-                    values[key] = bool(getattr(self, f"{name}_{key}_var").get())
-                elif kind == "entry":
-                    values[key] = getattr(self, f"{name}_{key}").get()
-        return {
-            "enabled": bool(state["enabled_var"].get()),
-            "advanced": bool(state["advanced_var"].get()),
-            "settings": values,
+            "exercises": {name: tab.collect() for name, tab in self._tabs.items()},
         }
 
     def on_footer_start(self):

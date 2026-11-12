@@ -4,7 +4,7 @@ Design notes:
 - The parsed JSON tree is the single source of truth; :class:`CardRecord`
   objects are typed views over the tree, so mutations flow back and a
   re-dump is a lossless round-trip (unknown fields and key order survive).
-- ``#`` comments (Choices.md style) are stripped before parsing and are not
+- ``#`` comments are stripped before parsing and are not
   preserved on write-back.
 - Validation collects per-card warnings; structurally broken cards are
   reported and skipped instead of failing the whole file.
@@ -28,7 +28,7 @@ __all__ = ["CardRecord", "Category", "Config", "load_config"]
 _CATEGORY_META = frozenset({"enabled", "$version"})
 _TOP_LEVEL_MEMOS = frozenset({"$version"})
 _GRADES = ("easy", "light", "medium", "hard", "impossible")
-# Per Choices.md: easy +10, light +5 (>=90%), medium +2, hard +0, impossible -5.
+# easy +10, light +5 (>=90%), medium +2, hard +0, impossible -5.
 SCORE_DELTAS = {"easy": 10, "light": 5, "medium": 2, "hard": 0, "impossible": -5}
 
 
@@ -301,7 +301,7 @@ def _load_cards(
 def _validate_card(
     label: str, data: dict[str, Any], warnings: list[str], media_base: Path
 ) -> bool:
-    """Per Choices.md: front/back each need text, or audio, or image.
+    """front/back each need text, or audio, or image.
 
     v1 exercises are text-only, so a card without text stays valid but earns
     a warning; selection must skip it later. Media paths are checked against

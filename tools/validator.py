@@ -30,7 +30,7 @@ resolve to an existing regular file in the deck file's directory (where
 its audio/ or image/ subfolder lives); a directory, trailing slash or
 otherwise, is an error.
 
-Two warnings are tolerated by design (Choices.md):
+Two warnings are tolerated by design:
     - text missing while audio or image covers the face (v1 exercises are
       text-only and would skip the card),
     - a present-but-empty string, which counts as absent.
@@ -60,7 +60,7 @@ _MEMOS = ("$version",)
 _METAS = ("enabled", "$version")
 _FACE_FIELDS = ("text", "sub", "audio", "image")
 _OTHER_FIELDS = (*_GRADES, "normal", "reverse")
-# Ranges: Per Choices.md - score 0 to 100, counters cannot go below 0.
+# Ranges: score 0 to 100, counters cannot go below 0.
 _SCORE_RANGE = range(0, 101)
 
 _CHECKS = {
