@@ -8,8 +8,8 @@ from tkinter import messagebox
 
 try:
     from .about import APP_NAME, show_about
-    from .blocks import ExerciseTab, Section
-    from .theme import (
+    from .helpers.blocks import ExerciseTab, Section
+    from .helpers.theme import (
         THEME_ACCENT, THEME_DANGER, THEME_DANGER_HOVER, THEME_FIELD_BG,
         THEME_FG, THEME_FG_DIM, THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL,
         THEME_FONT_TITLE, apply_theme,
@@ -20,8 +20,8 @@ except ImportError:  # started as a script, not as a package
     import sys
 
     from about import APP_NAME, show_about
-    from blocks import ExerciseTab, Section
-    from theme import (
+    from helpers.blocks import ExerciseTab, Section
+    from helpers.theme import (
         THEME_ACCENT, THEME_DANGER, THEME_DANGER_HOVER, THEME_FIELD_BG,
         THEME_FG, THEME_FG_DIM, THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL,
         THEME_FONT_TITLE, apply_theme,
@@ -519,7 +519,6 @@ class Application:
         y = max(0, (screen_h - height) // 2)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
 
-        # The user can shrink the window, but never below the layout's needs.
         self.root.minsize(
             min(WINDOW_MIN[0], width),
             min(WINDOW_MIN[1], height),
@@ -599,7 +598,6 @@ class Application:
         """Re-pack a tab in order, hiding advanced sections and blocks."""
         self._tabs[name].show_advanced()
 
-    # Reset
     def on_footer_reset(self):
         """Put every setting back to its default and unload the deck, after confirming."""
         confirmed = messagebox.askyesno(
@@ -774,7 +772,11 @@ class Application:
         pass
 
     def on_footer_quit(self):
-        self.root.destroy()
+        try:
+            self.root.destroy()
+        except Exception as e:
+            print(f"Couldn't destroy window: {e}")
+
 
     def on_footer_load(self):
         path = filedialog.askopenfilename(
@@ -912,7 +914,7 @@ class Application:
             return str(deck)
         try:
             relative = os.path.relpath(deck, Path(settings_path).resolve().parent)
-        except ValueError:  # different drive on Windows
+        except ValueError:
             return str(deck)
         if relative == os.pardir or relative.startswith(os.pardir + os.sep):
             return str(deck)

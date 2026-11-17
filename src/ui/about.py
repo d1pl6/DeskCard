@@ -12,9 +12,9 @@ except ImportError:  # started as a script, not as a package
     from src._version import __version__
 
 try:
-    from .theme import THEME_ACCENT, THEME_FG, THEME_FONT, THEME_FONT_TITLE
+    from .helpers.theme import THEME_ACCENT, THEME_FG, THEME_FONT, THEME_FONT_TITLE
 except ImportError:  # started as a script, not as a package
-    from theme import THEME_ACCENT, THEME_FG, THEME_FONT, THEME_FONT_TITLE
+    from helpers.theme import THEME_ACCENT, THEME_FG, THEME_FONT, THEME_FONT_TITLE
 
 
 APP_NAME = "DeskCard"
