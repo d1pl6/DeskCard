@@ -444,9 +444,9 @@ class Application:
 
         actions = tk.Frame(header, bg=THEME_BG)
         actions.pack(side="right")
-        flat_button(actions, "Skip", command=self.on_skip,
+        flat_button(actions, "Skip", command=self._continue,
                     kind="ghost").pack(side="left", padx=(0, 6))
-        flat_button(actions, "Quit", command=self.on_quit,
+        flat_button(actions, "Quit", command=self.root.destroy,
                     kind="danger").pack(side="left")
 
     def _build_footer(self):
