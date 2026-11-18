@@ -89,7 +89,7 @@ class SettingsTests(unittest.TestCase):
             {"other_repeat": True, "other_attempts": "3"}
         )
         with self.assertRaises(SettingsError):
-            Session(load_config(write_deck(tempfile.mkdtemp())), data, save=False)
+            Session(load_config(write_deck(tempfile.mkdtemp())), data, save_categories=False)
 
 
 class LoaderTests(unittest.TestCase):
@@ -107,7 +107,7 @@ class SessionTests(unittest.TestCase):
         data["global"].update({"session": "2", "batch": "1"})
         session = Session(
             load_config(write_deck(tempfile.mkdtemp())), data,
-            rng=random.Random(1), save=False,
+            rng=random.Random(1), save_categories=False,
         )
         events = list(session)
         self.assertEqual(
@@ -118,7 +118,7 @@ class SessionTests(unittest.TestCase):
     def test_result_updates_and_saves_deck(self):
         path = write_deck(tempfile.mkdtemp())
         config = load_config(path)
-        session = Session(config, settings(), rng=random.Random(1), save=False)
+        session = Session(config, settings(), rng=random.Random(1), save_categories=False)
         presentation = next(
             event for event in session if hasattr(event, "spec")
         )
@@ -132,7 +132,7 @@ class SessionTests(unittest.TestCase):
         data = settings()
         data["exercises"]["anki"]["settings"]["other_direction"] = "random"
         config = load_config(write_deck(tempfile.mkdtemp()))
-        session = Session(config, data, rng=random.Random(1), save=False)
+        session = Session(config, data, rng=random.Random(1), save_categories=False)
         before = {key: (card.normal, card.reverse)
                   for key, card in config.cards.items()}
         presentation = next(
@@ -147,7 +147,7 @@ class SessionTests(unittest.TestCase):
 
         forced = settings()
         config = load_config(write_deck(tempfile.mkdtemp()))
-        session = Session(config, forced, rng=random.Random(1), save=False)
+        session = Session(config, forced, rng=random.Random(1), save_categories=False)
         list(session)
         self.assertEqual(config.card("one").normal, 5)
         self.assertEqual(config.card("one").reverse, 5)
@@ -156,16 +156,45 @@ class SessionTests(unittest.TestCase):
         data = settings()
         data["exercises"]["anki"]["settings"]["other_score"] = "50-100"
         config = load_config(write_deck(tempfile.mkdtemp()))
-        session = Session(config, data, rng=random.Random(1), save=False)
+        session = Session(config, data, rng=random.Random(1), save_categories=False)
         cards = [event.card_ids[0] for event in session if hasattr(event, "spec")]
         self.assertEqual(cards, ["two"])
+
+    def test_anki_orders_by_lowest_score(self):
+        deck = {
+            "example": {
+                "enabled": True,
+                "high": {
+                    "front": {"text": "High"},
+                    "back": {"text": "High back"},
+                    "score": 90,
+                },
+                "low": {
+                    "front": {"text": "Low"},
+                    "back": {"text": "Low back"},
+                    "score": 5,
+                },
+                "mid": {
+                    "front": {"text": "Mid"},
+                    "back": {"text": "Mid back"},
+                    "score": 40,
+                },
+            },
+        }
+        path = Path(tempfile.mkdtemp()) / "deck.json"
+        path.write_text(json.dumps(deck), encoding="utf-8")
+        session = Session(
+            load_config(path), settings(), rng=random.Random(1), save_categories=False,
+        )
+        cards = [event.card_ids[0] for event in session if hasattr(event, "spec")]
+        self.assertEqual(cards, ["low", "mid", "high"])
 
     def test_category_states_override_deck(self):
         path = write_deck(tempfile.mkdtemp())
         data = settings()
         data["categories"] = {"first": False, "second": True}
         config = load_config(path)
-        session = Session(config, data, rng=random.Random(1), save=True)
+        session = Session(config, data, rng=random.Random(1), save_categories=True)
         written = json.loads(path.read_text())
         self.assertFalse(written["first"]["enabled"])
         self.assertTrue(written["second"]["enabled"])

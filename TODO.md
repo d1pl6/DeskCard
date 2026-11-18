@@ -1,4 +1,5 @@
 - [ ] Loader
+    - Random score for the next card
 - [ ] Anki
 - [ ] Choose
 - [ ] Connect
@@ -16,6 +17,8 @@
     - Score change
     - Default global settings
     - `**on**/off` increase "direction" counter in "normal" and "reverse" modes
+    - show next card in...
+    - show "time passed: ", "cards in batch: "session batches: "
     - Theme change
 - [ ] Editor
 - [ ] TTS

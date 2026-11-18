@@ -235,7 +235,11 @@ def normalize_settings(data: dict[str, Any]) -> NormalizedSettings:
         raw = raw_exercises.get(name, {})
         if not isinstance(raw, dict):
             _fail(f"exercises.{name}", "must be an object")
-        raw_settings = raw.get("settings") or {}
+        raw_settings = raw.get("settings")
+        if raw_settings is None:
+            raw_settings = {}
+        if not isinstance(raw_settings, dict):
+            _fail(f"exercises.{name}.settings", "must be an object")
         values = dict(_EXERCISE_DEFAULTS)
         values.update(raw_settings)
         path = f"exercises.{name}.settings"
@@ -402,8 +406,13 @@ class Session:
         category_states: dict[str, bool] | None = None,
         *,
         rng: random.Random | None = None,
-        save: bool = True,
+        save_categories: bool = True,
     ) -> None:
+        """Build a session from a deck and settings.
+
+        ``save_categories`` only controls write-back of category checkboxes;
+        results are always saved by :meth:`record` and :meth:`finish`.
+        """
         self.config = config
         self.settings = (
             settings if isinstance(settings, NormalizedSettings)
@@ -412,16 +421,27 @@ class Session:
         self.rng = rng or random.Random()
         self.media_base = config.path.resolve().parent
         self.warnings: list[str] = []
+        # Presentations are built (and their direction counters bumped) as a
+        # batch. Keep the baseline so only draws the UI really displayed are
+        # persisted; see commit_visible().
+        self._initial_directions = {
+            key: (card.normal, card.reverse)
+            for key, card in self.config.cards.items()
+        }
+        self._presented_draws: dict[int, tuple[tuple[str, bool, str], ...]] = {}
         # A settings file's category states override the deck's own enabled
         # flags; the UI passes its checkboxes explicitly when they differ.
         states = self.settings.categories if category_states is None else category_states
         if states:
-            self.apply_categories(states, save=save)
+            self.apply_categories(states, save_categories=save_categories)
         self._pools = self._build_pools()
+        self._warn_if_short()
         self._cursor = 0
 
     # -- categories ---------------------------------------------------------
-    def apply_categories(self, states: dict[str, bool], *, save: bool = True) -> None:
+    def apply_categories(
+        self, states: dict[str, bool], *, save_categories: bool = True
+    ) -> None:
         """Set category enabled flags in memory and, by default, on disk."""
         changed = False
         for name, category in self.config.categories.items():
@@ -433,8 +453,17 @@ class Session:
             category.enabled = enabled
             category.data["enabled"] = enabled
             changed = True
-        if changed and save:
+        if changed and save_categories:
             save_config(self.config)
+
+    def _warn_if_short(self) -> None:
+        """Warn up front when the deck cannot fill the requested batches."""
+        batches = self.settings.global_.batches
+        if batches is None:
+            return
+        available = sum(len(pool.draws) for pool in self._pools)
+        if available < batches * self.settings.global_.batch_size:
+            self.warnings.append("session ended early: not enough playable cards")
 
     # -- pool construction --------------------------------------------------
     def _build_pools(self) -> list[_Pool]:
@@ -449,18 +478,21 @@ class Session:
                 if self.config.categories[card.category].enabled
                 and low <= card.score <= high
             ]
-            if name in ("choose", "connect") and len(candidates) < 2:
-                self.warnings.append(
-                    f"{name}: needs at least 2 cards, only {len(candidates)} available"
-                )
-                continue
+            if name == "anki":
+                # Shuffle first so equal scores do not silently follow file
+                # order, then sort by score: weakest cards are shown first.
+                self.rng.shuffle(candidates)
+                candidates.sort(key=lambda card: card.score)
             draws: list[_Draw] = []
+            answer_texts: set[str] = set()
             for card in candidates:
                 direction, count = self._choose_direction(card, exercise.other_direction)
-                faces = self._faces(card, direction, f"{card.category}/{card.key}")
-                if faces is None:
-                    continue
-                prompt, answer, _warnings = faces
+                answer_text = card.back.text if direction == "normal" else card.front.text
+                if answer_text:
+                    answer_texts.add(answer_text)
+                prompt, answer, _ = self._faces(
+                    card, direction, f"{card.category}/{card.key}"
+                )
                 if name != "anki" and not self._content_ok(
                     prompt, exercise.prompt_type, f"{card.category}/{card.key}/prompt"
                 ):
@@ -472,6 +504,16 @@ class Session:
                 if name == "choose" and not answer.text:
                     continue
                 draws.append(_Draw(card.key, direction, count))
+            if name == "choose" and len(answer_texts) < 2:
+                self.warnings.append(
+                    f"choose: needs at least 2 choices, only {len(answer_texts)} available"
+                )
+                continue
+            if name == "connect" and len(draws) < 2:
+                self.warnings.append(
+                    f"connect: needs at least 2 cards, only {len(draws)} available"
+                )
+                continue
             if draws:
                 pools.append(_Pool(exercise, draws))
             else:
@@ -511,7 +553,7 @@ class Session:
         return str(target)
 
     def _faces(self, card: CardRecord, direction: str,
-               label: str) -> tuple[FaceSpec, FaceSpec, tuple[str, ...]] | None:
+               label: str) -> tuple[FaceSpec, FaceSpec, tuple[str, ...]]:
         warnings: list[str] = []
         prompt_data, answer_data = (
             (card.front, card.back) if direction == "normal"
@@ -557,19 +599,23 @@ class Session:
             return
         global_ = self.settings.global_
         limit = None if global_.batches is None else global_.batches * global_.batch_size
-        presented = 0
+        shown = 0
         while True:
-            if limit is not None and presented >= limit:
+            if limit is not None and shown >= limit:
                 return
-            if presented % global_.batch_size == 0:
-                yield Delay(self._delay_seconds())
-            presentation = self._next_presentation()
+            remaining = None if limit is None else limit - shown
+            presentation = self._next_presentation(remaining)
             if presentation is None:
-                if limit is not None and presented < limit:
-                    self.warnings.append("session ended early: not enough playable cards")
+                message = "session ended early: not enough playable cards"
+                if limit is not None and shown < limit and message not in self.warnings:
+                    self.warnings.append(message)
                 return
+            # Batches count cards, not presentations; Connect shows several
+            # cards at once. Fetching first also avoids a delay after the end.
+            if shown % global_.batch_size == 0:
+                yield Delay(self._delay_seconds())
             yield presentation
-            presented += 1
+            shown += len(presentation.card_ids)
 
     def __iter__(self) -> Iterator[Delay | Presentation]:
         return self.presentations()
@@ -583,7 +629,7 @@ class Session:
         high = math.floor(delay * (100 + jitter) / 100)
         return self.rng.randint(low, max(low, high))
 
-    def _next_presentation(self) -> Presentation | None:
+    def _next_presentation(self, remaining: int | None = None) -> Presentation | None:
         while self._pools:
             pool = self._pools[self._cursor % len(self._pools)]
             self._cursor += 1
@@ -594,12 +640,9 @@ class Session:
             card = self.config.card(draw.card_id)
             if card is None:
                 continue
-            if draw.count_direction:
-                self._count_direction(card, draw.direction)
-            faces = self._faces(card, draw.direction, f"{card.category}/{card.key}")
-            if faces is None:
-                continue
-            prompt, answer, warnings = faces
+            prompt, answer, warnings = self._faces(
+                card, draw.direction, f"{card.category}/{card.key}"
+            )
             exercise = pool.settings
             content_warnings: list[str] = []
             self._content_ok(
@@ -611,36 +654,53 @@ class Session:
                     answer, exercise.answer_prompt,
                     f"{card.category}/{card.key}/answer", content_warnings,
                 )
+            counted: list[tuple[CardRecord, _Draw]] = []
             presentation = self._build_spec(
                 exercise, card, draw, prompt, answer,
-                tuple(warnings) + tuple(content_warnings),
+                tuple(warnings) + tuple(content_warnings), counted, remaining,
             )
             if presentation is None:
                 continue
+            # Only cards that actually make it onto a presentation get their
+            # direction counter bumped, and only in random-direction mode.
+            for used_card, used_draw in counted:
+                if used_draw.count_direction:
+                    self._count_direction(used_card, used_draw.direction)
+            self._presented_draws[id(presentation)] = tuple(
+                (used_draw.card_id, used_draw.count_direction, used_draw.direction)
+                for _, used_draw in counted
+            )
             return presentation
         return None
 
     def _build_spec(self, exercise: ExerciseSettings, card: CardRecord,
                     draw: _Draw, prompt: FaceSpec, answer: FaceSpec,
-                    warnings: tuple[str, ...]) -> Presentation | None:
+                    warnings: tuple[str, ...],
+                    counted: list[tuple[CardRecord, _Draw]],
+                    remaining: int | None = None) -> Presentation | None:
         common = (card.category, draw.direction, card.key)
         category, direction, card_key = common
         if exercise.name == "anki":
+            counted.append((card, draw))
             spec = AnkiCardSpec(prompt, answer, category, direction, card_key)
             return Presentation("anki", spec, (card.key,), warnings)
         if exercise.name == "choose":
             choices = self._choices(exercise, card, draw.direction, answer.text or "")
             if choices is None:
                 return None
+            counted.append((card, draw))
             spec = ChooseCardSpec(
                 prompt, answer, choices[0], choices[1], category, direction, card_key,
             )
             return Presentation("choose", spec, (card.key,), warnings)
         if exercise.name == "write":
+            counted.append((card, draw))
             spec = WriteCardSpec(prompt, answer, category, direction, card_key)
             return Presentation("write", spec, (card.key,), warnings)
         if exercise.name == "connect":
-            return self._connect_presentation(exercise, draw, prompt, answer, warnings)
+            return self._connect_presentation(
+                exercise, draw, prompt, answer, warnings, counted, remaining
+            )
         return None
 
     def _choices(self, exercise: ExerciseSettings, card: CardRecord,
@@ -659,39 +719,44 @@ class Session:
 
     def _connect_presentation(self, exercise: ExerciseSettings, draw: _Draw,
                               prompt: FaceSpec, answer: FaceSpec,
-                              warnings: tuple[str, ...]) -> Presentation | None:
+                              warnings: tuple[str, ...],
+                              counted: list[tuple[CardRecord, _Draw]],
+                              allowance: int | None = None) -> Presentation | None:
         pool = next((item for item in self._pools if item.settings.name == "connect"), None)
         if pool is None:
             return None
-        wanted = min(exercise.answer_connections, len(pool.draws) + 1)
+        available = len(pool.draws) + 1  # the current draw is already popped
+        wanted = min(exercise.answer_connections, available)
+        if allowance is not None:
+            wanted = min(wanted, allowance)
+        if wanted < 2:
+            return None
+        if available - wanted == 1:
+            # Leave no orphaned card: either shrink this group to leave two,
+            # or absorb the stray card when the allowance permits it.
+            if wanted - 1 >= 2:
+                wanted -= 1
+            elif allowance is None or allowance > wanted:
+                wanted += 1
         used = [draw]
         all_warnings = list(warnings)
         while len(used) < wanted and pool.draws:
-            extra = pool.draws.pop(0)
-            card = self.config.card(extra.card_id)
-            if card is None:
-                continue
-            if extra.count_direction:
-                self._count_direction(card, extra.direction)
-            more = self._faces(card, extra.direction,
-                               f"{card.category}/{card.key}")
-            if more is None:
-                continue
-            used.append(extra)
-            all_warnings.extend(more[2])
+            used.append(pool.draws.pop(0))
         if len(used) < 2:
             return None
         pairs: list[ConnectPairSpec] = []
-        for item in used:
+        used_cards: list[tuple[CardRecord, _Draw]] = []
+        for index, item in enumerate(used):
             card = self.config.card(item.card_id)
             if card is None:
                 continue
             faces = self._faces(card, item.direction, f"{card.category}/{card.key}")
-            if faces is None:
-                continue
             pairs.append(ConnectPairSpec(
                 faces[0], faces[1], card.category, item.direction, card.key,
             ))
+            used_cards.append((card, item))
+            if index:
+                all_warnings.extend(faces[2])
         if len(pairs) < 2:
             return None
         if len(pairs) < exercise.answer_connections:
@@ -700,10 +765,35 @@ class Session:
                 f"({exercise.answer_connections} requested)"
             )
         spec = ConnectCardSpec(tuple(pairs), pairs[0].category, pairs[0].direction)
+        counted.extend(used_cards)
         return Presentation("connect", spec, tuple(pair.card_id for pair in pairs),
                             tuple(all_warnings))
 
     # -- results ------------------------------------------------------------
+    def commit_visible(self, presentations: list[Presentation]) -> None:
+        """Keep direction counters only for presentations the UI displayed.
+
+        Materializing a session builds every presentation up front, which also
+        bumps counters for cards the user may never see. Before any save, reset
+        each counter to its pre-session value and re-apply only the draws that
+        were actually shown.
+        """
+        for card_id, (normal, reverse) in self._initial_directions.items():
+            card = self.config.card(card_id)
+            if card is None:
+                continue
+            card.data["normal"] = normal
+            card.data["reverse"] = reverse
+        for presentation in presentations:
+            for card_id, counted, direction in self._presented_draws.get(
+                id(presentation), ()
+            ):
+                if not counted:
+                    continue
+                card = self.config.card(card_id)
+                if card is not None:
+                    self._count_direction(card, direction)
+
     def record(self, presentation: Presentation, grade: str) -> None:
         """Apply one result to every card used by ``presentation`` and save."""
         if grade not in SCORE_DELTAS:

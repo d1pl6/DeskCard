@@ -9,6 +9,7 @@ from tkinter import messagebox
 try:
     from .about import APP_NAME, show_about
     from .helpers.blocks import ExerciseTab, Section
+    from .runner import SessionRunner
     from .helpers.theme import (
         THEME_ACCENT, THEME_DANGER, THEME_DANGER_HOVER, THEME_FIELD_BG,
         THEME_FG, THEME_FG_DIM, THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL,
@@ -16,11 +17,13 @@ try:
     )
     from ..config.loader import load_config
     from ..errors import ConfigError
+    from ..session import Session, SettingsError, normalize_settings
 except ImportError:  # started as a script, not as a package
     import sys
 
     from about import APP_NAME, show_about
     from helpers.blocks import ExerciseTab, Section
+    from runner import SessionRunner
     from helpers.theme import (
         THEME_ACCENT, THEME_DANGER, THEME_DANGER_HOVER, THEME_FIELD_BG,
         THEME_FG, THEME_FG_DIM, THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL,
@@ -31,6 +34,7 @@ except ImportError:  # started as a script, not as a package
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from src.config.loader import load_config
     from src.errors import ConfigError
+    from src.session import Session, SettingsError, normalize_settings
 
 
 def _scroll_wheel(event):
@@ -190,7 +194,7 @@ def prompt_section():
              "advanced": True, "options": SUB_OPTIONS, "default": "always"},
             {"kind": "subheading", "text": "Difficulty", "advanced": True},
             {"key": "prompt_listens", "label": "Re-listens allowed",
-             "kind": "entry", "hint": "0 = unlimited", "advanced": True, "default": "0"},
+             "kind": "entry", "hint": "0 = none", "advanced": True, "default": "0"},
         ],
     }
 
@@ -433,7 +437,7 @@ class Application:
         self.global_time_text, self.global_time_entry, row = (
             self._global_setting(row, "Delay:"))
         self.global_session_text, self.global_session_entry, row = (
-            self._global_setting(row, "Cards in session:"))
+            self._global_setting(row, "Batches in session:"))
         self.global_batch_text, self.global_batch_entry, row = (
             self._global_setting(row, "Cards in batch:"))
         self.global_jitter_text, self.global_jitter_entry, row = (
@@ -654,7 +658,11 @@ class Application:
     def _on_click_outside_deck_entry(self, event):
         """Clicking anywhere but the field (and Browse) commits the typed path."""
         widget = event.widget
-        if widget is None or widget.winfo_toplevel() is not self.root:
+        # Native dialogs (and some Tk bindings) deliver a widget path string
+        # instead of a widget object; those clicks are not ours to handle.
+        if not isinstance(widget, tk.Misc):
+            return
+        if widget.winfo_toplevel() is not self.root:
             return
         if str(widget).startswith(str(self.desk_entry)) or widget is self.desk_browse:
             return
@@ -760,12 +768,15 @@ class Application:
 
     def _show_warnings(self, warnings):
         """Show validation warnings, truncated if the file has many."""
+        self._show_messages("Deck loaded with warnings", warnings)
+
+    def _show_messages(self, title, messages):
+        """Show a list of messages, truncated if there are many."""
         limit = 12
-        prefix = f"{self.config.path}: " if self.config else ""
-        text = "\n".join(warning.removeprefix(prefix) for warning in warnings[:limit])
-        if len(warnings) > limit:
-            text += f"\n…and {len(warnings) - limit} more."
-        messagebox.showwarning("Deck loaded with warnings", text, parent=self.root)
+        text = "\n".join(str(message) for message in messages[:limit])
+        if len(messages) > limit:
+            text += f"\n…and {len(messages) - limit} more."
+        messagebox.showwarning(title, text, parent=self.root)
 
     def on_desk_edit(self):
         # TODO
@@ -958,7 +969,38 @@ class Application:
         }
 
     def on_footer_start(self):
-        pass
+        """Validate settings, write category states, and run an Anki session."""
+        if self.config is None:
+            messagebox.showwarning(
+                "No deck loaded", "Load a deck before starting a session.",
+                parent=self.root,
+            )
+            return
+
+        data = self._collect_settings()
+        try:
+            normalized = normalize_settings(data)
+            session = Session(
+                self.config, normalized,
+                category_states=data.get("categories"), save_categories=True,
+            )
+        except (SettingsError, ConfigError, OSError) as error:
+            messagebox.showerror("Cannot start session", str(error), parent=self.root)
+            return
+
+        runner = SessionRunner(self.root, session)
+        if runner.warnings:
+            self._show_messages("Session warnings", runner.warnings)
+        if not runner.has_work:
+            title = "No Anki cards to study" if runner.skipped else "Nothing to study"
+            messagebox.showwarning(
+                title,
+                "No Anki cards match the current deck, categories, and score filter.",
+                parent=self.root,
+            )
+            runner.finish_quietly()
+            return
+        runner.start()
 
 
 def _read_settings(path):
