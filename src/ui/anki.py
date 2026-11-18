@@ -1,118 +1,330 @@
-"""Anki-style card exercise: show front → reveal back → five self-grade buttons."""
+"""Anki-style card exercise: show front, reveal back, then self-grade.
 
-from typing import Any
+Run it:
+
+    python src/ui/anki.py
+"""
 
 import tkinter as tk
-from tkinter import ttk
 
-WINDOW_SIZE = (650, 700)
-WINDOW_MIN = (600, 600)
-WINDOW_MARGIN = (60, 100)
+try:  # imported as ui.anki
+    from .helpers.theme import (
+        THEME_ACCENT, THEME_ACCENT_FG, THEME_ACCENT_HOVER, THEME_BG,
+        THEME_DANGER, THEME_DANGER_HOVER, THEME_FG, THEME_FG_DIM,
+        THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
+        apply_theme,
+    )
+except ImportError:  # started as a script: python src/ui/anki.py
+    from helpers.theme import (
+        THEME_ACCENT, THEME_ACCENT_FG, THEME_ACCENT_HOVER, THEME_BG,
+        THEME_DANGER, THEME_DANGER_HOVER, THEME_FG, THEME_FG_DIM,
+        THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
+        apply_theme,
+    )
+
+
+WINDOW_SIZE = (760, 800)
+WINDOW_MIN = (620, 640)
+WINDOW_MARGIN = (120, 140)
+
+SUCCESS_BG = "#2f6b46"
+SUCCESS_BORDER = "#64c98a"
+SUCCESS_FG = "#eaf7ee"
+PANEL_BG = "#333333"
+CARD_BG = "#3c3c3c"
+CARD_BORDER = "#4a4a4a"
+
+FONT = (THEME_FONT_FAMILY, 10)
+FONT_TITLE = (THEME_FONT_FAMILY, 24, "bold")
+FONT_TITLE_SMALL = (THEME_FONT_FAMILY, 18, "bold")
+FONT_BODY = (THEME_FONT_FAMILY, 14)
+FONT_SUB = (THEME_FONT_FAMILY, 10)
+FONT_CHIP = (THEME_FONT_FAMILY, 9, "bold")
+FONT_HINT = (THEME_FONT_FAMILY, 9)
+FONT_META = (THEME_FONT_FAMILY, 8)
+
+GRADES = [
+    ("Impossible", -5, THEME_DANGER, THEME_DANGER_HOVER),
+    ("Hard", 0, "#5a5a5a", "#6a6a6a"),
+    ("Medium", 2, "#4a6b8a", "#5a7b9a"),
+    ("Light", 5, "#4a8a6b", "#5a9a7b"),
+    ("Easy", 10, SUCCESS_BG, "#3f7b56"),
+]
+
+
+class CardSide:
+    """One side of an Anki card."""
+
+    def __init__(self, text, sub="", audio=False, image=False,
+                 category="", direction="normal"):
+        self.text = text
+        self.sub = sub
+        self.audio = audio
+        self.image = image
+        self.category = category
+        self.direction = direction
+
+
+class AnkiCard:
+    """A card with a front and a back side."""
+
+    def __init__(self, front, back):
+        self.front = front
+        self.back = back
+
+
+DEFAULT_CARD = AnkiCard(
+    CardSide("Hello", "/həˈloʊ/", audio=True, image=False,
+             category="greetings", direction="normal"),
+    CardSide("Hola", "/ˈoʊlɑː/", audio=True, image=True,
+             category="greetings", direction="normal"),
+)
+
+
+def flat_button(parent, text, command=None, kind="dark", small=False, **kw):
+    """A tk.Button stripped down to blend into the dark UI."""
+    if kind == "accent":
+        bg, hover, fg = THEME_ACCENT, THEME_ACCENT_HOVER, THEME_ACCENT_FG
+    elif kind == "danger":
+        bg, hover, fg = THEME_DANGER, THEME_DANGER_HOVER, "#ffffff"
+    elif kind == "ghost":
+        bg, hover, fg = THEME_BG, CARD_BORDER, THEME_FG_DIM
+    else:
+        bg, hover, fg = "#454545", "#525252", THEME_FG
+    options = dict(
+        text=text, command=command, relief="flat", borderwidth=0,
+        highlightthickness=0, bg=bg, fg=fg, activebackground=hover,
+        activeforeground=fg, cursor="hand2", takefocus=0,
+        font=THEME_FONT_SMALL if small else FONT,
+        padx=8 if small else 16, pady=2 if small else 8,
+    )
+    options.update(kw)
+    return tk.Button(parent, **options)
+
 
 class Application:
-    def __init__(self, root):
+    """Show the front, reveal the back, then self-grade the card."""
+
+    def __init__(self, root, card=None):
         self.root = root
         root.title("DeskCard - Anki")
+        apply_theme(root)
+
+        self.card = card or DEFAULT_CARD
+        self.revealed = False
+        self.last_grade = None
+        self._window_width = 0
+        self._resize_job = None
+
+        root.bind("<Return>", lambda _e: self._enter())
+        root.bind("<KP_Enter>", lambda _e: self._enter())
+        root.bind("<space>", lambda _e: self._enter())
+        root.bind("<Escape>", lambda _e: self.on_quit())
+        root.bind("<Configure>", self._on_configure)
+        root.bind("<Destroy>", self._on_destroy)
+
         self._fit_window()
+        self._build()
 
-    # Header
-        self.header = tk.Frame(root, borderwidth=1, relief=tk.GROOVE)
-        self.header.pack(fill="x", side="top")
-        self.header.rowconfigure(0, weight=1)
-        self.header.rowconfigure(1, weight=1)
-        self.header.columnconfigure(0, weight=1)
-        self.header.columnconfigure(1, weight=3)
+    def set_card(self, card):
+        self.card = card
+        self.revealed = False
+        self.last_grade = None
+        self._build()
 
-        self.header_name = tk.Label(self.header, text="DeskCard - Anki", pady=10, padx=10)
-        self.header_name.grid(column=0, row=0, sticky="w")
+    # -- state -------------------------------------------------------------
+    def _enter(self):
+        if not self.revealed:
+            self.revealed = True
+            self._build()
+        else:
+            # Enter repeats the last grade's action: advance.
+            self._continue()
 
-        self.header_buttons = tk.Frame(self.header, pady=10, padx=10)
-        self.header_buttons.grid(column=1, row=0, sticky="e")
+    def _grade(self, grade):
+        self.last_grade = grade
+        self._continue()
 
-        self.header_skip = tk.Button(self.header_buttons, text="Skip", command=self.on_skip)
-        self.header_skip.grid(column=0, row=0, padx=10)
+    def _continue(self):
+        """Advance to the next card; placeholder until the session exists."""
+        self.revealed = False
+        self.last_grade = None
+        self._build()
 
-        self.header_quit = tk.Button(self.header_buttons, text="Quit", command=self.on_quit)
-        self.header_quit.grid(column=1, row=0)
+    def on_skip(self):
+        self._continue()
 
-    # Prompt
-        self.prompt = tk.Frame(root, borderwidth=1, relief=tk.GROOVE)
-        self.prompt.pack(fill="x", pady=5)
+    def on_quit(self, event=None):
+        try:
+            self.root.destroy()
+        except Exception as exc:
+            print(f"Couldn't destroy window: {exc}")
 
-        self.prompt_row = tk.Frame(self.prompt)
-        self.prompt_row.pack(expand=True)
+    def _play(self, side, _event=None):
+        """Audio placeholder: a real screen plays the side's audio."""
+        return None
 
-        self.prompt_text = tk.Label(self.prompt_row, text="Prompt Text")
-        self.prompt_text.pack(side="left", padx=5)
+    def _on_configure(self, event):
+        if event.widget is not self.root:
+            return
+        if abs(event.width - self._window_width) < 8:
+            return
+        self._window_width = event.width
+        if self._resize_job is not None:
+            self.root.after_cancel(self._resize_job)
+        self._resize_job = self.root.after(120, self._rebuild)
 
-        self.prompt_audio = tk.Button(self.prompt_row, text="▶")
-        self.prompt_audio.pack(side="left", padx=5)
+    def _rebuild(self):
+        self._resize_job = None
+        self._build()
 
+    def _on_destroy(self, event):
+        if event.widget is self.root and self._resize_job is not None:
+            try:
+                self.root.after_cancel(self._resize_job)
+            except tk.TclError:
+                pass
+            self._resize_job = None
 
-    # Answer
-        self.answer = tk.Frame(root, borderwidth=1, relief=tk.GROOVE)
-        self.answer.pack(fill="x", pady=5)
-
-        self.answer_row = tk.Frame(self.answer)
-
-        self.answer_text = tk.Label(self.answer_row, text="Answer Text")
-
-        self.answer_audio = tk.Button(self.answer_row, text="▶")
-
-
-    # Bottom
-        self.bottom = tk.Frame(root, borderwidth=1, relief=tk.GROOVE)
-        self.bottom.pack(fill="x", side="bottom")
-
-        self.bottom_button = tk.Button(self.bottom, text="Show Answer", command=self.show_answer)
-        self.bottom_button.pack()
-
-        self.bottom_impossible = tk.Button(self.bottom, text="Impossible")
-        self.bottom_hard = tk.Button(self.bottom, text="Hard")
-        self.bottom_medium = tk.Button(self.bottom, text="Medium")
-        self.bottom_easy = tk.Button(self.bottom, text="Easy")
-
-    def show_answer(self):
-        self.bottom_button.pack_forget()
-
-        self.answer_row.pack(expand=True)
-        self.answer_text.pack(side="left", padx=5, pady=5)
-        self.answer_audio.pack(side="left", padx=5, pady=5)
-
-        self.bottom_impossible.pack(expand=True, side="left")
-        self.bottom_hard.pack(expand=True, side="left")
-        self.bottom_medium.pack(expand=True, side="left")
-        self.bottom_easy.pack(expand=True, side="left")
-
-
+    # -- window ------------------------------------------------------------
     def _fit_window(self):
-        """Size the window to the screen, centre it, and set a sane minimum."""
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
-
-        width = min(WINDOW_SIZE[0], max(WINDOW_MIN[0], screen_w - WINDOW_MARGIN[0]))
-        height = min(WINDOW_SIZE[1], max(WINDOW_MIN[1], screen_h - WINDOW_MARGIN[1]))
-
+        width = min(
+            WINDOW_SIZE[0], max(WINDOW_MIN[0], screen_w - WINDOW_MARGIN[0]))
+        height = min(
+            WINDOW_SIZE[1], max(WINDOW_MIN[1], screen_h - WINDOW_MARGIN[1]))
         x = max(0, (screen_w - width) // 2)
         y = max(0, (screen_h - height) // 2)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
-
         self.root.minsize(
             min(WINDOW_MIN[0], width),
             min(WINDOW_MIN[1], height),
         )
+        self._window_width = width
 
-    def on_skip(self):
-        pass #TODO
+    # -- build -------------------------------------------------------------
+    def _build(self):
+        self.root.update_idletasks()
+        width = self.root.winfo_width()
+        if width > 1:
+            self._window_width = width
+        for child in self.root.winfo_children():
+            child.destroy()
+        self._build_header()
+        self._build_body()
+        self._build_footer()
 
-    def on_quit(self):
-        try:
-            self.root.destroy()
-        except Exception as e:
-            print(f"Couldn't destroy window: {e}")
+    def _build_header(self):
+        header = tk.Frame(self.root, bg=THEME_BG)
+        header.pack(fill="x", padx=28, pady=(14, 4))
+
+        title = tk.Frame(header, bg=THEME_BG)
+        title.pack(side="left")
+        tk.Label(title, text="◆ DeskCard", bg=THEME_BG, fg=THEME_ACCENT,
+                 font=THEME_FONT_BOLD).pack(side="left")
+        tk.Label(title, text="  Anki", bg=THEME_BG, fg=THEME_FG_DIM,
+                 font=FONT).pack(side="left")
+
+        actions = tk.Frame(header, bg=THEME_BG)
+        actions.pack(side="right")
+        flat_button(actions, "Skip", command=self.on_skip,
+                    kind="ghost").pack(side="left", padx=(0, 6))
+        flat_button(actions, "Quit", command=self.on_quit,
+                    kind="danger").pack(side="left")
+
+    def _wraplength(self):
+        return max(320, min(680, self._window_width - 120))
+
+    def _face_block(self, parent, side, revealed, wrap):
+        """Render one side: text, sub, audio, and an optional image slot."""
+        frame = tk.Frame(parent, bg=PANEL_BG)
+        inner = tk.Frame(frame, bg=PANEL_BG)
+        inner.pack(fill="x", padx=24, pady=16)
+
+        meta = "   ·   ".join(
+            part for part in (side.category.upper(), side.direction.upper())
+            if part)
+        if meta:
+            tk.Label(inner, text=meta, bg=PANEL_BG, fg=THEME_FG_DIM,
+                     font=FONT_META).pack(anchor="w")
+
+        text_font = FONT_TITLE if len(side.text) <= 24 else FONT_TITLE_SMALL
+        row = tk.Frame(inner, bg=PANEL_BG)
+        row.pack(anchor="center", pady=(6, 0))
+        tk.Label(row, text=side.text, bg=PANEL_BG, fg=THEME_FG,
+                 font=text_font, justify="center", wraplength=wrap
+                 ).pack(side="left", anchor="n")
+        if side.audio:
+            flat_button(row, "▶", command=lambda s=side: self._play(s),
+                        small=True).pack(side="left", padx=(12, 0), pady=(4, 0))
+
+        if side.sub:
+            tk.Label(inner, text=side.sub, bg=PANEL_BG, fg=THEME_FG_DIM,
+                     font=FONT_SUB, justify="center", wraplength=wrap
+                     ).pack(anchor="center", pady=(4, 0))
+
+        if side.image:
+            slot = tk.Frame(inner, bg="#2a2a2a", width=220, height=136,
+                            highlightthickness=1, highlightbackground="#4f4f4f")
+            slot.pack_propagate(False)
+            tk.Label(slot, text="image", bg="#2a2a2a", fg="#666666",
+                     font=FONT_META).place(relx=0.5, rely=0.5, anchor="center")
+            slot.pack(anchor="center", pady=(8, 0))
+
+        return frame
+
+    def _build_body(self):
+        body = tk.Frame(self.root, bg=THEME_BG)
+        body.pack(fill="both", expand=True, padx=28, pady=(6, 0))
+
+        wrap = self._wraplength()
+
+        front = self._face_block(body, self.card.front, self.revealed, wrap)
+        front.pack(fill="x", pady=(8, 6))
+
+        if self.revealed:
+            back = self._face_block(body, self.card.back, True, wrap)
+            back.pack(fill="x", pady=(6, 8))
+
+            grade_frame = tk.Frame(body, bg=THEME_BG)
+            grade_frame.pack(fill="x", side="bottom", pady=(8, 0))
+            for column, (label, delta, bg, hover) in enumerate(GRADES):
+                grade_frame.columnconfigure(column, weight=1, uniform="grade")
+            for column, (label, delta, bg, hover) in enumerate(GRADES):
+                sign = "+" if delta > 0 else ""
+                button = flat_button(
+                    grade_frame, f"{label}\n{sign}{delta}",
+                    command=lambda grade=label: self._grade(grade),
+                    kind="ghost", small=False,
+                    bg=bg, activebackground=hover, fg="#ffffff",
+                )
+                button.grid(row=0, column=column, sticky="nsew", padx=4, pady=4)
+        else:
+            show = flat_button(body, "Show Answer", command=self._reveal,
+                               kind="accent")
+            show.pack(pady=(12, 0))
+
+    def _reveal(self):
+        self.revealed = True
+        self._build()
+
+    def _build_footer(self):
+        footer = tk.Frame(self.root, bg=THEME_BG)
+        footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
+
+        if self.revealed:
+            if self.last_grade is None:
+                hint = "Grade the card · Enter advances"
+            else:
+                hint = f"Graded {self.last_grade} · Enter for next card"
+        else:
+            hint = "Enter or Space shows the answer"
+        tk.Label(footer, text=hint, bg=THEME_BG, fg=THEME_FG_DIM,
+                 font=FONT_HINT).pack(side="left")
+
 
 def main():
-    """Create the window and run the app; shared by every entry point."""
     root = tk.Tk()
     Application(root)
     root.mainloop()

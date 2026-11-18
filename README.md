@@ -17,13 +17,13 @@ DeskCard - flashcard app that overlays on top of your screen until you finish th
 Classic (almost) Anki.
 Answer in your head, click **Show answer**, then choose how difficult it was to answer.
 
-| Button | Score change |
-| ------ | ------------ |
-| Again  | -5           |
-| Hard   | 0            |
-| Good   | +2           |
-| Light  | +5           |
-| Easy   | +10          |
+| Button      | Score change |
+| ----------- | ------------ |
+| Impossible  | -5           |
+| Hard        | 0            |
+| Medium      | +2           |
+| Light       | +5           |
+| Easy        | +10          |
 
 ### Choose
 Pick the answer from the choices, then click **Confirm** (or press Enter).
