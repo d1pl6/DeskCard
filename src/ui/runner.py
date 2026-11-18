@@ -15,6 +15,7 @@ try:  # imported as ui.runner
     from .write import Application as WriteApplication, WriteCard
     from ..errors import ConfigError
     from ..session import Delay, Presentation
+    from .media import stop_audio
 except ImportError:  # started as a script from src/ui
     import sys
     from pathlib import Path
@@ -26,6 +27,7 @@ except ImportError:  # started as a script from src/ui
     from write import Application as WriteApplication, WriteCard
     from src.errors import ConfigError
     from src.session import Delay, Presentation
+    from media import stop_audio
 
 
 # How long an intermediate wrong answer stays on screen before a retry.
@@ -82,6 +84,7 @@ class SessionRunner:
         self.current = presentation
         exercise = presentation.exercise
         title = f"DeskCard - {exercise.title()}"
+        listens = self.session.settings.exercises[exercise].prompt_listens
         if exercise == "anki":
             self._open(title, lambda window: AnkiApplication(
                 window,
@@ -96,6 +99,7 @@ class SessionRunner:
                 window,
                 card=self._choose_card(presentation),
                 warnings=presentation.warnings,
+                prompt_listens=listens,
                 on_result=self._on_result,
                 on_skip=self._close_and_advance,
                 on_quit=self.quit,
@@ -105,6 +109,7 @@ class SessionRunner:
                 window,
                 card=self._connect_card(presentation),
                 warnings=presentation.warnings,
+                prompt_listens=listens,
                 on_result=self._on_result,
                 on_skip=self._close_and_advance,
                 on_quit=self.quit,
@@ -114,6 +119,7 @@ class SessionRunner:
                 window,
                 card=self._write_card(presentation),
                 warnings=presentation.warnings,
+                prompt_listens=listens,
                 on_result=self._on_result,
                 on_skip=self._close_and_advance,
                 on_quit=self.quit,
@@ -137,6 +143,9 @@ class SessionRunner:
         focus_input = getattr(self.app, "focus_input", None)
         if callable(focus_input):
             window.after_idle(focus_input)
+        auto_play = getattr(self.app, "auto_play", None)
+        if callable(auto_play):
+            window.after_idle(auto_play)
 
     @staticmethod
     def _anki_card(presentation):
@@ -160,6 +169,8 @@ class SessionRunner:
             list(spec.choices), spec.correct,
             category=spec.category, direction=spec.direction,
             has_image=bool(spec.answer.image),
+            prompt_audio=spec.prompt.audio, answer_audio=spec.answer.audio,
+            prompt_image=spec.prompt.image, answer_image=spec.answer.image,
         )
 
     @staticmethod
@@ -169,6 +180,8 @@ class SessionRunner:
                 pair.prompt.text or "", pair.prompt.sub or "",
                 pair.answer.text or "", pair.answer.sub or "",
                 category=pair.category, direction=pair.direction,
+                prompt_audio=pair.prompt.audio, answer_audio=pair.answer.audio,
+                prompt_image=pair.prompt.image, answer_image=pair.answer.image,
             )
             for pair in presentation.spec.pairs
         ]
@@ -182,6 +195,8 @@ class SessionRunner:
             spec.answer.text or "", spec.answer.sub or "",
             category=spec.category, direction=spec.direction,
             card_id=spec.card_id,
+            prompt_audio=spec.prompt.audio, answer_audio=spec.answer.audio,
+            prompt_image=spec.prompt.image, answer_image=spec.answer.image,
         )
 
     # -- results ------------------------------------------------------------
@@ -243,7 +258,11 @@ class SessionRunner:
     def _retry_now(self):
         if self._ended or self.app is None:
             return
+        stop_audio()
         self.app.retry()
+        auto_play = getattr(self.app, "auto_play", None)
+        if callable(auto_play) and self.window is not None:
+            self.window.after_idle(auto_play)
         self._start_timer()
 
     def _finalize(self):
@@ -357,6 +376,7 @@ class SessionRunner:
         self._after_widget = None
 
     def _destroy_window(self):
+        stop_audio()
         window = self.window
         self.window = None
         self.app = None

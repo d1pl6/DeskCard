@@ -14,6 +14,7 @@ try:  # imported as ui.anki
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
         apply_theme,
     )
+    from .media import image_frame, play_audio, stop_audio
 except ImportError:  # started as a script: python src/ui/anki.py
     from helpers.theme import (
         THEME_ACCENT, THEME_ACCENT_FG, THEME_ACCENT_HOVER, THEME_BG,
@@ -21,6 +22,7 @@ except ImportError:  # started as a script: python src/ui/anki.py
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
         apply_theme,
     )
+    from media import image_frame, play_audio, stop_audio
 
 
 WINDOW_SIZE = (760, 800)
@@ -50,8 +52,9 @@ GRADES = [
 class CardSide:
     """One side of an Anki card."""
 
-    def __init__(self, text, sub="", audio=False, image=False,
+    def __init__(self, text, sub="", audio=None, image=None,
                  category="", direction="normal"):
+        """``audio``/``image`` are file paths; ``None`` means absent."""
         self.text = text
         self.sub = sub
         self.audio = audio
@@ -69,10 +72,8 @@ class AnkiCard:
 
 
 DEFAULT_CARD = AnkiCard(
-    CardSide("Hello", "/həˈloʊ/", audio=True, image=False,
-             category="greetings", direction="normal"),
-    CardSide("Hola", "/ˈoʊlɑː/", audio=True, image=True,
-             category="greetings", direction="normal"),
+    CardSide("Hello", "/həˈloʊ/", category="greetings", direction="normal"),
+    CardSide("Hola", "/ˈoʊlɑː/", category="greetings", direction="normal"),
 )
 
 
@@ -117,6 +118,7 @@ class Application:
         self._on_quit = on_quit or (lambda: self.root.destroy())
         self._window_width = 0
         self._resize_job = None
+        self._auto_played = set()
 
         root.bind("<Return>", lambda _e: self._enter())
         root.bind("<KP_Enter>", lambda _e: self._enter())
@@ -157,6 +159,7 @@ class Application:
         self.last_grade = None
         self.locked = False
         self._freeze_message = ""
+        self._auto_played.clear()
         self._build()
 
     def on_skip(self):
@@ -178,9 +181,29 @@ class Application:
         self._freeze_message = message
         self._build()
 
+    def auto_play(self):
+        """Play the front audio once when the card first opens."""
+        self._auto_play("front", self.card.front)
+
+    def _auto_play(self, name, side):
+        if name in self._auto_played or not side.audio:
+            return
+        self._auto_played.add(name)
+        self._play(side)
+
     def _play(self, side, _event=None):
-        """Audio placeholder: a real screen plays the side's audio."""
-        return None
+        """Play this side's audio with pygame."""
+        if not side.audio:
+            return
+        try:
+            play_audio(side.audio)
+        except RuntimeError as error:
+            self._warn(str(error))
+
+    def _warn(self, message):
+        if message not in self.warnings:
+            self.warnings = self.warnings + (message,)
+            self._build_footer()
 
     def _on_configure(self, event):
         if event.widget is not self.root:
@@ -285,11 +308,10 @@ class Application:
                      ).pack(anchor="center", pady=(4, 0))
 
         if side.image:
-            slot = tk.Frame(inner, bg="#2a2a2a", width=220, height=136,
-                            highlightthickness=1, highlightbackground="#4f4f4f")
-            slot.pack_propagate(False)
-            tk.Label(slot, text="image", bg="#2a2a2a", fg="#666666",
-                     font=FONT_META).place(relx=0.5, rely=0.5, anchor="center")
+            slot = image_frame(
+                inner, side.image, width=220, height=136,
+                max_size=(212, 128), bg="#2a2a2a", font=FONT_META,
+            )
             slot.pack(anchor="center", pady=(8, 0))
 
         return frame
@@ -329,6 +351,7 @@ class Application:
     def _reveal(self):
         self.revealed = True
         self._build()
+        self._auto_play("back", self.card.back)
 
     def _build_footer(self):
         footer = tk.Frame(self.root, bg=THEME_BG)

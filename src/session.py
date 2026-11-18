@@ -573,6 +573,29 @@ class Session:
         return prompt, answer, tuple(warnings)
 
     @staticmethod
+    def _filter_face(face: FaceSpec, modes: tuple[str, ...]) -> FaceSpec:
+        """Keep only the parts requested by the exercise's content modes."""
+        parts = {part for mode in modes for part in CONTENT_MODES[mode]}
+        return FaceSpec(
+            text=face.text if "text" in parts else None,
+            sub=face.sub if "text" in parts else None,
+            audio=face.audio if "audio" in parts else None,
+            image=face.image if "image" in parts else None,
+        )
+
+    @classmethod
+    def _wanted_warnings(cls, warnings: tuple[str, ...],
+                         *mode_groups: tuple[str, ...]) -> tuple[str, ...]:
+        parts = {
+            part for modes in mode_groups for mode in modes
+            for part in CONTENT_MODES[mode]
+        }
+        return tuple(
+            warning for warning in warnings
+            if any(f"/{part}:" in warning for part in parts)
+        )
+
+    @staticmethod
     def _content_ok(face: FaceSpec, modes: tuple[str, ...], label: str,
                     warnings: list[str] | None = None) -> bool:
         if not modes:
@@ -654,10 +677,21 @@ class Session:
                     answer, exercise.answer_prompt,
                     f"{card.category}/{card.key}/answer", content_warnings,
                 )
+            if exercise.name in ("choose", "write") and not any(
+                    "text" in CONTENT_MODES[mode] for mode in exercise.answer_prompt):
+                message = f"{exercise.name}: answer must include text"
+                if message not in self.warnings:
+                    self.warnings.append(message)
+                continue
+            prompt = self._filter_face(prompt, exercise.prompt_type)
+            answer = self._filter_face(answer, exercise.answer_prompt)
+            visible_warnings = self._wanted_warnings(
+                tuple(warnings), exercise.prompt_type, exercise.answer_prompt,
+            )
             counted: list[tuple[CardRecord, _Draw]] = []
             presentation = self._build_spec(
                 exercise, card, draw, prompt, answer,
-                tuple(warnings) + tuple(content_warnings), counted, remaining,
+                visible_warnings + tuple(content_warnings), counted, remaining,
             )
             if presentation is None:
                 continue
@@ -751,12 +785,16 @@ class Session:
             if card is None:
                 continue
             faces = self._faces(card, item.direction, f"{card.category}/{card.key}")
+            pair_prompt = self._filter_face(faces[0], exercise.prompt_type)
+            pair_answer = self._filter_face(faces[1], exercise.answer_prompt)
             pairs.append(ConnectPairSpec(
-                faces[0], faces[1], card.category, item.direction, card.key,
+                pair_prompt, pair_answer, card.category, item.direction, card.key,
             ))
             used_cards.append((card, item))
             if index:
-                all_warnings.extend(faces[2])
+                all_warnings.extend(self._wanted_warnings(
+                    faces[2], exercise.prompt_type, exercise.answer_prompt,
+                ))
         if len(pairs) < 2:
             return None
         if len(pairs) < exercise.answer_connections:

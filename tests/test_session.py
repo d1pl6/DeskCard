@@ -8,7 +8,7 @@ from pathlib import Path
 
 from src.config.loader import load_config
 from src.errors import SettingsError
-from src.session import Session, parse_score_filter, parse_time
+from src.session import Presentation, Session, parse_score_filter, parse_time
 
 
 DECK = {
@@ -243,6 +243,39 @@ class SessionTests(unittest.TestCase):
         self.assertFalse(written["first"]["enabled"])
         self.assertTrue(written["second"]["enabled"])
         self.assertEqual(session.settings.global_.batch_size, 1)
+
+    def test_single_mode_renders_only_requested_content(self):
+        directory = Path(tempfile.mkdtemp())
+        audio = directory / "hello.wav"
+        image = directory / "hello.png"
+        audio.write_bytes(b"audio")
+        image.write_bytes(b"image")
+        deck = {
+            "example": {
+                "enabled": True,
+                "one": {
+                    "front": {
+                        "text": "Hello", "audio": audio.name, "image": image.name,
+                    },
+                    "back": {"text": "Hola", "audio": audio.name},
+                    "score": 50,
+                },
+            },
+        }
+        path = directory / "deck.json"
+        path.write_text(json.dumps(deck), encoding="utf-8")
+        data = settings()
+        data["exercises"]["anki"]["settings"]["prompt_type"] = ["audio_only"]
+        data["exercises"]["anki"]["settings"]["answer_prompt"] = ["text_only"]
+        session = Session(
+            load_config(path), data, rng=random.Random(1), save_categories=False,
+        )
+        event = next(item for item in session if isinstance(item, Presentation))
+        self.assertIsNone(event.spec.front.text)
+        self.assertIsNone(event.spec.front.image)
+        self.assertTrue(event.spec.front.audio.endswith("hello.wav"))
+        self.assertEqual(event.spec.back.text, "Hola")
+        self.assertIsNone(event.spec.back.audio)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ try:  # imported as ui.connect
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
         apply_theme,
     )
+    from .media import image_frame, play_audio, stop_audio
 except ImportError:  # started as a script: python src/ui/connect.py
     from helpers.theme import (
         THEME_ACCENT, THEME_ACCENT_FG, THEME_ACCENT_HOVER, THEME_BG,
@@ -25,6 +26,7 @@ except ImportError:  # started as a script: python src/ui/connect.py
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
         apply_theme,
     )
+    from media import image_frame, play_audio, stop_audio
 
 
 WINDOW_SIZE = (920, 740)
@@ -63,13 +65,19 @@ class ConnectPair:
     """One matched pair: a prompt side and an answer side."""
 
     def __init__(self, prompt, prompt_sub="", answer="", answer_sub="",
-                 category="greetings", direction="normal"):
+                 category="greetings", direction="normal",
+                 prompt_audio=None, answer_audio=None,
+                 prompt_image=None, answer_image=None):
         self.prompt = prompt
         self.prompt_sub = prompt_sub
         self.answer = answer
         self.answer_sub = answer_sub
         self.category = category
         self.direction = direction
+        self.prompt_audio = prompt_audio
+        self.answer_audio = answer_audio
+        self.prompt_image = prompt_image
+        self.answer_image = answer_image
 
 
 class ConnectCard:
@@ -116,7 +124,8 @@ class ConnectItem(tk.Frame):
     """One prompt or answer card in a Connect column."""
 
     def __init__(self, parent, text, sub, state, selected, paired, color,
-                 revealed, correct, on_click, wraplength):
+                 revealed, correct, on_click, wraplength, audio=None,
+                 on_play=None, image=None):
         if revealed:
             if correct:
                 bg, border, fg = SUCCESS_BG, SUCCESS_BORDER, SUCCESS_FG
@@ -140,6 +149,19 @@ class ConnectItem(tk.Frame):
                          anchor="w", justify="left", wraplength=wraplength)
         label.pack(anchor="w")
         self._parts.append((label, bg))
+
+        if audio:
+            audio_row = tk.Frame(inner, bg=bg)
+            audio_row.pack(anchor="w")
+            flat_button(audio_row, "▶", command=on_play, small=True).pack(
+                side="left")
+            self._parts.append((audio_row, bg))
+
+        if image:
+            image_frame(
+                inner, image, width=120, height=72, max_size=(112, 64), bg=bg,
+                font=FONT_SUB,
+            ).pack(anchor="w", pady=(4, 0))
 
         if sub:
             sub_label = tk.Label(inner, text=sub, bg=bg, fg=THEME_FG_DIM,
@@ -165,7 +187,7 @@ class Application:
     """Match the prompts on the left with the answers on the right."""
 
     def __init__(self, root, card=None, on_result=None, on_skip=None,
-                 on_quit=None, warnings=()):
+                 on_quit=None, warnings=(), prompt_listens=0):
         self.root = root
         root.title("DeskCard - Connect")
         apply_theme(root)
@@ -189,7 +211,10 @@ class Application:
         self._right_widgets = {}
         self._canvas = None
         self._resize_job = None
+        self._draw_job = None
         self._window_width = 0
+        self.prompt_listens = int(prompt_listens)
+        self.prompt_plays = 0
 
         root.bind("<Return>", lambda _e: self._enter())
         root.bind("<KP_Enter>", lambda _e: self._enter())
@@ -218,6 +243,7 @@ class Application:
         self.revealed = False
         self.reveal_correct = None
         self.correct_count = 0
+        self.prompt_plays = 0
         self._left_widgets = {}
         self._right_widgets = {}
         n = len(self.card.pairs)
@@ -328,8 +354,32 @@ class Application:
         self._freeze_message = message
         self._build()
 
-    def _play(self, _event=None):
-        return None
+    def auto_play(self):
+        """Play the first prompt's audio once when the card opens."""
+        pairs = self.card.pairs
+        if pairs and pairs[0].prompt_audio:
+            self._play_prompt(pairs[0].prompt_audio)
+
+    def _play_prompt(self, path):
+        limit = 1 + self.prompt_listens
+        if self.prompt_plays >= limit:
+            return
+        self.prompt_plays += 1
+        self._play(path)
+
+    def _play_answer(self, path):
+        self._play(path)
+
+    def _play(self, path):
+        try:
+            play_audio(path)
+        except RuntimeError as error:
+            self._warn(str(error))
+
+    def _warn(self, message):
+        if message not in self.warnings:
+            self.warnings = self.warnings + (message,)
+            self._build_footer()
 
     def _on_configure(self, event):
         if event.widget is not self.root:
@@ -346,12 +396,16 @@ class Application:
         self._build()
 
     def _on_destroy(self, event):
-        if event.widget is self.root and self._resize_job is not None:
-            try:
-                self.root.after_cancel(self._resize_job)
-            except tk.TclError:
-                pass
-            self._resize_job = None
+        if event.widget is not self.root:
+            return
+        for name in ("_resize_job", "_draw_job"):
+            job = getattr(self, name)
+            if job is not None:
+                try:
+                    self.root.after_cancel(job)
+                except tk.TclError:
+                    pass
+                setattr(self, name, None)
 
     # -- window ------------------------------------------------------------
     def _fit_window(self):
@@ -383,7 +437,12 @@ class Application:
         self._build_header()
         self._build_body()
         self._build_footer()
-        self.root.after_idle(self._draw_lines)
+        if self._draw_job is not None:
+            try:
+                self.root.after_cancel(self._draw_job)
+            except tk.TclError:
+                pass
+        self._draw_job = self.root.after_idle(self._draw_lines)
 
     def _build_header(self):
         header = tk.Frame(self.root, bg=THEME_BG)
@@ -463,6 +522,9 @@ class Application:
                 row in self.pairs, color, self.revealed,
                 self._pair_correct(row) if self.revealed else None,
                 lambda value=row: self._click_left(value), wrap,
+                audio=pair.prompt_audio,
+                on_play=lambda path=pair.prompt_audio: self._play_prompt(path),
+                image=pair.prompt_image,
             )
             item.grid(row=row, column=0, sticky="nsew", padx=(0, 12), pady=6)
             self._left_widgets[row] = item
@@ -482,6 +544,9 @@ class Application:
                 rstate, row == self.right_selected,
                 row in self.reverse, right_color, self.revealed, rcorrect,
                 lambda value=row: self._click_right(value), wrap,
+                audio=rpair.answer_audio,
+                on_play=lambda path=rpair.answer_audio: self._play_answer(path),
+                image=rpair.answer_image,
             )
             ritem.grid(row=row, column=1, sticky="nsew", padx=(12, 0), pady=6)
             self._right_widgets[row] = ritem
@@ -572,6 +637,7 @@ class Application:
         action.pack(side="right")
 
     def _draw_lines(self):
+        self._draw_job = None
         if self._canvas is None:
             return
         try:

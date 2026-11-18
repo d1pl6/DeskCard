@@ -4,9 +4,8 @@ Run it:
 
     python src/ui/write.py
 
-The initial release uses exact matching, including capitalization. Audio and
-image placeholders are kept consistent with the other exercise screens; media
-playback is still a separate task.
+The initial release uses exact matching, including capitalization. Prompt and
+answer audio use pygame; images are shown with Pillow when available.
 """
 
 import tkinter as tk
@@ -18,6 +17,7 @@ try:  # imported as ui.write
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
         apply_theme,
     )
+    from .media import image_frame, play_audio, stop_audio
 except ImportError:  # started as a script: python src/ui/write.py
     from helpers.theme import (
         THEME_ACCENT, THEME_ACCENT_FG, THEME_ACCENT_HOVER, THEME_BG,
@@ -25,6 +25,7 @@ except ImportError:  # started as a script: python src/ui/write.py
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
         apply_theme,
     )
+    from media import image_frame, play_audio, stop_audio
 
 
 WINDOW_SIZE = (920, 620)
@@ -54,7 +55,9 @@ class WriteCard:
     """One card's worth of data for the Write screen."""
 
     def __init__(self, prompt, prompt_sub="", answer="", answer_sub="",
-                 category="greetings", direction="normal", card_id=""):
+                 category="greetings", direction="normal", card_id="",
+                 prompt_audio=None, answer_audio=None,
+                 prompt_image=None, answer_image=None):
         self.prompt = prompt
         self.prompt_sub = prompt_sub
         self.answer = answer
@@ -62,6 +65,10 @@ class WriteCard:
         self.category = category
         self.direction = direction
         self.card_id = card_id
+        self.prompt_audio = prompt_audio
+        self.answer_audio = answer_audio
+        self.prompt_image = prompt_image
+        self.answer_image = answer_image
 
 
 DEFAULT_CARD = WriteCard(
@@ -93,7 +100,7 @@ class Application:
     """Prompt, a text entry, and the exact-match result sheet."""
 
     def __init__(self, root, card=None, on_result=None, on_skip=None,
-                 on_quit=None, warnings=()):
+                 on_quit=None, warnings=(), prompt_listens=0):
         self.root = root
         root.title("DeskCard - Write")
         apply_theme(root)
@@ -113,6 +120,10 @@ class Application:
         self._window_width = 0
         self._resize_job = None
         self._entry = None
+        self.prompt_listens = int(prompt_listens)
+        self.prompt_plays = 0
+        self._prompt_audio_button = None
+        self._answer_audio_button = None
 
         root.bind("<Return>", lambda _e: self._enter())
         root.bind("<KP_Enter>", lambda _e: self._enter())
@@ -140,6 +151,9 @@ class Application:
         self.locked = False
         self._freeze_message = ""
         self._retry_feedback = False
+        self.prompt_plays = 0
+        self._prompt_audio_button = None
+        self._answer_audio_button = None
 
     def _enter(self):
         if self.locked:
@@ -200,6 +214,44 @@ class Application:
             return
         self.locked = True
         self._on_quit()
+
+    def auto_play(self):
+        """Play the prompt once when the card first opens."""
+        self._play_prompt(auto=True)
+
+    def _play_prompt(self, auto=False):
+        if not self.card.prompt_audio:
+            return
+        limit = 1 + self.prompt_listens
+        if self.prompt_plays >= limit:
+            return
+        self.prompt_plays += 1
+        self._play(self.card.prompt_audio)
+        self._update_audio_buttons()
+
+    def _play_answer(self):
+        if self.card.answer_audio:
+            self._play(self.card.answer_audio)
+
+    def _play(self, path):
+        try:
+            play_audio(path)
+        except RuntimeError as error:
+            self._warn(str(error))
+
+    def _update_audio_buttons(self):
+        button = self._prompt_audio_button
+        if button is not None:
+            remaining = max(0, 1 + self.prompt_listens - self.prompt_plays)
+            button.configure(text=f"▶{remaining}" if remaining else "▶")
+        answer = self._answer_audio_button
+        if answer is not None:
+            answer.configure(state="normal")
+
+    def _warn(self, message):
+        if message not in self.warnings:
+            self.warnings = self.warnings + (message,)
+            self._build_footer()
 
     def focus_input(self):
         """Put the caret in the answer entry when the pop-up becomes active."""
@@ -335,12 +387,24 @@ class Application:
         length = len(data.prompt or "")
         font = (FONT_PROMPT if length <= 32 else
                 FONT_PROMPT_MEDIUM if length <= 80 else FONT_PROMPT_SMALL)
-        tk.Label(inner, text=data.prompt, bg=PANEL_BG, fg=THEME_FG,
-                 font=font, justify="left", wraplength=wrap).pack(anchor="w")
+        row = tk.Frame(inner, bg=PANEL_BG)
+        row.pack(anchor="w")
+        tk.Label(row, text=data.prompt, bg=PANEL_BG, fg=THEME_FG,
+                 font=font, justify="left", wraplength=wrap).pack(
+            side="left", anchor="n")
+        if data.prompt_audio:
+            self._prompt_audio_button = flat_button(
+                row, "▶", command=self._play_prompt, small=True)
+            self._prompt_audio_button.pack(side="left", padx=(12, 0), pady=(8, 0))
         if data.prompt_sub:
             tk.Label(inner, text=data.prompt_sub, bg=PANEL_BG,
                      fg=THEME_FG_DIM, font=FONT_HINT, justify="left",
                      wraplength=wrap).pack(anchor="w", pady=(2, 0))
+        if data.prompt_image:
+            image_frame(
+                inner, data.prompt_image, width=220, height=136,
+                max_size=(212, 128), bg=PANEL_BG, font=FONT_META,
+            ).pack(anchor="w", pady=(8, 0))
         return panel
 
     def _build_entry(self, parent):
@@ -412,16 +476,27 @@ class Application:
                      fg=THEME_FG_DIM, font=FONT_META).pack(
                 anchor="center", pady=(10, 0))
         if not hide_answer:
-            answer = tk.Label(
-                inner, text=self.card.answer, bg=PANEL_BG,
+            answer_row = tk.Frame(inner, bg=PANEL_BG)
+            answer_row.pack(anchor="center", pady=(6, 0))
+            tk.Label(
+                answer_row, text=self.card.answer, bg=PANEL_BG,
                 fg=SUCCESS_BORDER if correct else WRONG_FG,
                 font=FONT_ANSWER, wraplength=wrap,
-            )
-            answer.pack(anchor="center", pady=(6, 0))
+            ).pack(side="left", anchor="n")
+            if self.card.answer_audio:
+                self._answer_audio_button = flat_button(
+                    answer_row, "▶", command=self._play_answer, small=True)
+                self._answer_audio_button.pack(side="left", padx=(12, 0),
+                                               pady=(4, 0))
             if self.card.answer_sub:
                 tk.Label(inner, text=self.card.answer_sub, bg=PANEL_BG,
                          fg=THEME_FG_DIM, font=FONT_HINT).pack(
                     anchor="center", pady=(2, 0))
+            if self.card.answer_image:
+                image_frame(
+                    inner, self.card.answer_image, width=260, height=160,
+                    max_size=(252, 152), bg=PANEL_BG, font=FONT_META,
+                ).pack(anchor="center", pady=(8, 0))
         if not correct:
             tk.Label(inner, text=f"YOU TYPED: {self.typed}", bg=PANEL_BG,
                      fg=THEME_FG_DIM, font=FONT_HINT, wraplength=wrap,

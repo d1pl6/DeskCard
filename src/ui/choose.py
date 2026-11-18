@@ -22,6 +22,7 @@ try:  # imported as ui.choose
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
         apply_theme,
     )
+    from .media import image_frame, play_audio, stop_audio
 except ImportError:  # started as a script: python src/ui/choose.py
     from helpers.theme import (
         THEME_ACCENT, THEME_ACCENT_FG, THEME_ACCENT_HOVER, THEME_BG,
@@ -29,6 +30,7 @@ except ImportError:  # started as a script: python src/ui/choose.py
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
         apply_theme,
     )
+    from media import image_frame, play_audio, stop_audio
 
 
 WINDOW_SIZE = (1000, 760)
@@ -71,7 +73,8 @@ class ChooseCard:
 
     def __init__(self, prompt, prompt_sub, answer, answer_sub, choices,
                  correct, category="greetings", direction="normal",
-                 has_image=False):
+                 has_image=False, prompt_audio=None, answer_audio=None,
+                 prompt_image=None, answer_image=None):
         self.prompt = prompt
         self.prompt_sub = prompt_sub
         self.answer = answer
@@ -81,6 +84,10 @@ class ChooseCard:
         self.category = category
         self.direction = direction
         self.has_image = has_image
+        self.prompt_audio = prompt_audio
+        self.answer_audio = answer_audio
+        self.prompt_image = prompt_image
+        self.answer_image = answer_image
 
 
 DEFAULT_CARD = ChooseCard(
@@ -287,7 +294,7 @@ class Application:
     """Prompt, choices, and a centred answer sheet after confirming."""
 
     def __init__(self, root, card=None, on_result=None, on_skip=None,
-                 on_quit=None, warnings=()):
+                 on_quit=None, warnings=(), prompt_listens=0):
         self.root = root
         root.title("DeskCard - Choose")
         apply_theme(root)
@@ -306,6 +313,10 @@ class Application:
         self._choice_fraction = 0.0
         self._resize_job = None
         self._window_width = 0
+        self.prompt_listens = int(prompt_listens)
+        self.prompt_plays = 0
+        self._prompt_audio_button = None
+        self._answer_audio_button = None
 
         root.bind("<Key-1>", lambda _e: self._pick_key(0))
         root.bind("<Key-2>", lambda _e: self._pick_key(1))
@@ -340,6 +351,9 @@ class Application:
         self.locked = False
         self._freeze_message = ""
         self._choice_fraction = 0.0
+        self.prompt_plays = 0
+        self._prompt_audio_button = None
+        self._answer_audio_button = None
 
     def _pick(self, index):
         if self.locked or self.revealed or index >= len(self.card.choices):
@@ -398,9 +412,43 @@ class Application:
         self._freeze_message = message
         self._build()
 
-    def _play(self, _event=None):
-        """Audio placeholder: a real screen plays prompt/answer audio."""
-        return None
+    def auto_play(self):
+        """Play the prompt once when the card first opens."""
+        self._play_prompt(auto=True)
+
+    def _play_prompt(self, auto=False):
+        if not self.card.prompt_audio:
+            return
+        limit = 1 + self.prompt_listens
+        if self.prompt_plays >= limit:
+            return
+        self.prompt_plays += 1
+        self._play(self.card.prompt_audio)
+        self._update_audio_buttons()
+
+    def _play_answer(self):
+        if self.card.answer_audio:
+            self._play(self.card.answer_audio)
+
+    def _play(self, path):
+        try:
+            play_audio(path)
+        except RuntimeError as error:
+            self._warn(str(error))
+
+    def _update_audio_buttons(self):
+        button = self._prompt_audio_button
+        if button is not None:
+            remaining = max(0, 1 + self.prompt_listens - self.prompt_plays)
+            button.configure(text=f"▶{remaining}" if remaining else "▶")
+        answer = self._answer_audio_button
+        if answer is not None:
+            answer.configure(state="normal")
+
+    def _warn(self, message):
+        if message not in self.warnings:
+            self.warnings = self.warnings + (message,)
+            self._build_footer()
 
     def _on_configure(self, event):
         """Re-wrap text when the window is resized; debounced to avoid churn."""
@@ -547,13 +595,20 @@ class Application:
             row, text=data.prompt, bg=PANEL_BG, fg=THEME_FG,
             font=prompt_font, justify="left", wraplength=wrap,
         ).pack(side="left", anchor="n")
-        flat_button(row, "▶", command=self._play,
-                    small=True).pack(side="left", padx=(12, 0), pady=(8, 0))
+        if data.prompt_audio:
+            self._prompt_audio_button = flat_button(
+                row, "▶", command=self._play_prompt, small=True)
+            self._prompt_audio_button.pack(side="left", padx=(12, 0), pady=(8, 0))
 
         if data.prompt_sub:
             tk.Label(inner, text=data.prompt_sub, bg=PANEL_BG,
                      fg=THEME_FG_DIM, font=FONT_HINT, justify="left",
                      wraplength=wrap).pack(anchor="w", pady=(2, 0))
+        if data.prompt_image:
+            image_frame(
+                inner, data.prompt_image, width=220, height=136,
+                max_size=(212, 128), bg=PANEL_BG, font=FONT_META,
+            ).pack(anchor="w", pady=(8, 0))
         return panel
 
     def _choice_wraplength(self, columns):
@@ -676,9 +731,11 @@ class Application:
                     fg=SUCCESS_BORDER, font=answer_font, wraplength=wrap,
                     justify=justify,
                 ).pack(side="left", anchor="n")
-                flat_button(answer_row, "▶", command=self._play,
-                            small=True).pack(side="left", padx=(12, 0),
-                                             pady=(4, 0))
+                if data.answer_audio:
+                    self._answer_audio_button = flat_button(
+                        answer_row, "▶", command=self._play_answer, small=True)
+                    self._answer_audio_button.pack(side="left", padx=(12, 0),
+                                                   pady=(4, 0))
 
             if data.answer_sub:
                 tk.Label(
@@ -689,7 +746,7 @@ class Application:
 
         if has_image:
             image_size = (180, 112) if has_text else (240, 150)
-            slot = self._image_slot(sides, *image_size)
+            slot = self._image_slot(sides, data.answer_image, *image_size)
             slot.pack(side="left", anchor="n",
                       padx=(24 if has_text else 0, 0))
 
@@ -699,14 +756,12 @@ class Application:
             else:
                 self._chosen_block(parent, wrap, anchor="center")
 
-    def _image_slot(self, parent, width=190, height=118):
-        """Placeholder for the back image; the real screen loads a PhotoImage."""
-        slot = tk.Frame(parent, bg="#2a2a2a", width=width, height=height,
-                        highlightthickness=1, highlightbackground="#4f4f4f")
-        slot.pack_propagate(False)
-        tk.Label(slot, text="image", bg="#2a2a2a", fg="#666666",
-                 font=FONT_META).place(relx=0.5, rely=0.5, anchor="center")
-        return slot
+    def _image_slot(self, parent, path, width=190, height=118):
+        """Show the answer image, or a placeholder if it cannot be loaded."""
+        return image_frame(
+            parent, path, width=width, height=height,
+            max_size=(width - 8, height - 8), bg="#2a2a2a", font=FONT_META,
+        )
 
 
 def main():
