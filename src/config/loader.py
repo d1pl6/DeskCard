@@ -165,11 +165,13 @@ class Category:
 class Config:
     """A parsed and validated flashcard config.
 
-    ``cards`` contains only cards from enabled categories that passed
-    validation, keyed by card id, in file order. ``warnings`` lists every
-    validation problem, including why a card was skipped. ``disabled``
-    counts the skipped cards per disabled category. ``tree`` keeps every
-    field the file arrived with, so re-dumping it is a lossless round-trip.
+    ``cards`` contains every card that passed validation, keyed by card id,
+    in file order, including cards from disabled categories. Use
+    :meth:`active_cards` for the subset in enabled categories; the session
+    owns that filtering. ``warnings`` lists every validation problem,
+    including why a card was skipped. ``disabled`` counts the cards per
+    disabled category. ``tree`` keeps every field the file arrived with, so
+    re-dumping it is a lossless round-trip.
     """
 
     def __init__(
@@ -191,11 +193,18 @@ class Config:
     def card(self, card_id: str) -> CardRecord | None:
         return self.cards.get(card_id)
 
+    def active_cards(self) -> dict[str, CardRecord]:
+        """Valid cards in enabled categories, keyed by card id."""
+        return {
+            key: card for key, card in self.cards.items()
+            if self.categories[card.category].enabled
+        }
+
     def __iter__(self) -> Iterator[CardRecord]:
-        return iter(self.cards.values())
+        return iter(self.active_cards().values())
 
     def __len__(self) -> int:
-        return len(self.cards)
+        return len(self.active_cards())
 
 
 def load_config(path: str | Path) -> Config:
@@ -280,8 +289,6 @@ def _load_cards(
 ) -> dict[str, CardRecord]:
     cards: dict[str, CardRecord] = {}
     for category in categories.values():
-        if not category.enabled:
-            continue
         for key, data in category.data.items():
             if key in _CATEGORY_META:
                 continue
