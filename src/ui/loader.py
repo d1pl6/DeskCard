@@ -992,10 +992,9 @@ class Application:
         if runner.warnings:
             self._show_messages("Session warnings", runner.warnings)
         if not runner.has_work:
-            title = "No Anki cards to study" if runner.skipped else "Nothing to study"
             messagebox.showwarning(
-                title,
-                "No Anki cards match the current deck, categories, and score filter.",
+                "Nothing to study",
+                "No cards match the current deck, categories, and score filter.",
                 parent=self.root,
             )
             runner.finish_quietly()

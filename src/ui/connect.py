@@ -164,12 +164,19 @@ class ConnectItem(tk.Frame):
 class Application:
     """Match the prompts on the left with the answers on the right."""
 
-    def __init__(self, root, card=None):
+    def __init__(self, root, card=None, on_result=None, on_skip=None,
+                 on_quit=None, warnings=()):
         self.root = root
         root.title("DeskCard - Connect")
         apply_theme(root)
 
         self.card = card or DEFAULT_CARD
+        self.warnings = tuple(warnings)
+        self.locked = False
+        self._freeze_message = ""
+        self._on_result = on_result or (lambda _correct: self._continue())
+        self._on_skip = on_skip or (lambda: self._continue())
+        self._on_quit = on_quit or (lambda: self.root.destroy())
         self.left_selected = None
         self.right_selected = None
         self.pairs = {}          # left index -> right index
@@ -201,6 +208,8 @@ class Application:
 
     # -- state -------------------------------------------------------------
     def _reset(self):
+        self.locked = False
+        self._freeze_message = ""
         self.left_selected = None
         self.right_selected = None
         self.pairs = {}
@@ -237,7 +246,7 @@ class Application:
         self.pair_color.pop(left, None)
 
     def _click_left(self, index):
-        if self.revealed:
+        if self.locked or self.revealed:
             return
         if index in self.pairs:
             self._unpair(index)
@@ -253,7 +262,7 @@ class Application:
         self._build()
 
     def _click_right(self, index):
-        if self.revealed:
+        if self.locked or self.revealed:
             return
         if index in self.reverse:
             self._unpair(self.reverse[index])
@@ -269,12 +278,16 @@ class Application:
         self._build()
 
     def _enter(self):
+        if self.locked:
+            return
         if self.revealed:
             self._continue()
         else:
             self._confirm()
 
     def _confirm(self):
+        if self.locked:
+            return
         n = len(self.card.pairs)
         if len(self.pairs) != n:
             return
@@ -284,20 +297,36 @@ class Application:
         )
         self.reveal_correct = self.correct_count == n
         self.revealed = True
+        self.locked = True
         self._build()
+        self._on_result(self.reveal_correct)
 
     def _continue(self):
         self._reset()
         self._build()
 
+    def retry(self):
+        """Show the same pairs again for another attempt."""
+        self._reset()
+        self._build()
+
     def on_skip(self):
-        self._continue()
+        if self.locked:
+            return
+        self.locked = True
+        self._on_skip()
 
     def on_quit(self, event=None):
-        try:
-            self.root.destroy()
-        except Exception as exc:
-            print(f"Couldn't destroy window: {exc}")
+        if self.locked:
+            return
+        self.locked = True
+        self._on_quit()
+
+    def freeze(self, message):
+        """Lock the card and show a short status while the session waits."""
+        self.locked = True
+        self._freeze_message = message
+        self._build()
 
     def _play(self, _event=None):
         return None
@@ -515,7 +544,9 @@ class Application:
         footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
 
         n = len(self.card.pairs)
-        if self.revealed:
+        if self._freeze_message:
+            hint = self._freeze_message
+        elif self.revealed:
             hint = f"{self.correct_count} of {n} correct"
         elif len(self.pairs) < n:
             hint = f"Connect {n - len(self.pairs)} more"
@@ -525,12 +556,18 @@ class Application:
             hint = "Pick the other side"
         tk.Label(footer, text=hint, bg=THEME_BG, fg=THEME_FG_DIM,
                  font=FONT_HINT).pack(side="left")
+        if self.warnings:
+            tk.Label(
+                footer, text="⚠ " + " · ".join(self.warnings),
+                bg=THEME_BG, fg="#d9c04f", font=FONT_META,
+                justify="left", wraplength=self._window_width - 160,
+            ).pack(side="bottom", anchor="w", pady=(2, 0))
 
         action_text = "Continue" if self.revealed else "Confirm"
         action_command = self._continue if self.revealed else self._confirm
         action = flat_button(footer, action_text, command=action_command,
                              kind="accent")
-        if not self.revealed and len(self.pairs) != n:
+        if self.locked or (not self.revealed and len(self.pairs) != n):
             action.configure(state="disabled", bg="#3a3a3a", fg="#777777")
         action.pack(side="right")
 
@@ -538,6 +575,10 @@ class Application:
         if self._canvas is None:
             return
         try:
+            # The runner may replace this card before the idle callback runs;
+            # the old canvas command then no longer exists.
+            if not self.root.winfo_exists() or not self._canvas.winfo_exists():
+                return
             self._canvas.delete("connect_line")
         except tk.TclError:
             return

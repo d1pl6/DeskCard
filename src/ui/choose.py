@@ -286,15 +286,22 @@ class ChoiceCard(tk.Frame):
 class Application:
     """Prompt, choices, and a centred answer sheet after confirming."""
 
-    def __init__(self, root, card=None):
+    def __init__(self, root, card=None, on_result=None, on_skip=None,
+                 on_quit=None, warnings=()):
         self.root = root
         root.title("DeskCard - Choose")
         apply_theme(root)
 
         self.card = card or DEFAULT_CARD
+        self.warnings = tuple(warnings)
         self.selected = None
         self.revealed = False
         self.reveal_correct = None
+        self.locked = False
+        self._freeze_message = ""
+        self._on_result = on_result or (lambda _correct: self._continue())
+        self._on_skip = on_skip or self._continue
+        self._on_quit = on_quit or (lambda: self.root.destroy())
         self._choice_scroll = None
         self._choice_fraction = 0.0
         self._resize_job = None
@@ -330,10 +337,12 @@ class Application:
         self.selected = None
         self.revealed = False
         self.reveal_correct = None
+        self.locked = False
+        self._freeze_message = ""
         self._choice_fraction = 0.0
 
     def _pick(self, index):
-        if self.revealed or index >= len(self.card.choices):
+        if self.locked or self.revealed or index >= len(self.card.choices):
             return
         if self._choice_scroll is not None:
             self._choice_fraction = self._choice_scroll.canvas.yview()[0]
@@ -345,32 +354,49 @@ class Application:
             self._pick(index)
 
     def _enter(self):
+        if self.locked:
+            return
         if self.revealed:
             self._continue()
         elif self.selected is not None:
             self._confirm()
 
     def _confirm(self):
-        if self.selected is None:
+        if self.locked or self.selected is None:
             return
         self.reveal_correct = self.selected == self.card.correct
         self.revealed = True
+        self.locked = True
         self._build()
+        self._on_result(self.reveal_correct)
 
     def _continue(self):
-        """Advance to the next card; placeholder until the session exists."""
+        """Standalone-mode advance; the session runner supplies its own flow."""
+        self._reset()
+        self._build()
+
+    def retry(self):
+        """Show the same card again for another attempt."""
         self._reset()
         self._build()
 
     def on_skip(self):
-        """Skip the current card; placeholder until the session exists."""
-        self._continue()
+        if self.locked:
+            return
+        self.locked = True
+        self._on_skip()
 
     def on_quit(self, event=None):
-        try:
-            self.root.destroy()
-        except Exception as exc:
-            print(f"Couldn't destroy window: {exc}")
+        if self.locked:
+            return
+        self.locked = True
+        self._on_quit()
+
+    def freeze(self, message):
+        """Lock the card and show a short status while the session waits."""
+        self.locked = True
+        self._freeze_message = message
+        self._build()
 
     def _play(self, _event=None):
         """Audio placeholder: a real screen plays prompt/answer audio."""
@@ -444,16 +470,18 @@ class Application:
 
         actions = tk.Frame(header, bg=THEME_BG)
         actions.pack(side="right")
-        flat_button(actions, "Skip", command=self._continue,
+        flat_button(actions, "Skip", command=self.on_skip,
                     kind="ghost").pack(side="left", padx=(0, 6))
-        flat_button(actions, "Quit", command=self.root.destroy,
+        flat_button(actions, "Quit", command=self.on_quit,
                     kind="danger").pack(side="left")
 
     def _build_footer(self):
         footer = tk.Frame(self.root, bg=THEME_BG)
         footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
 
-        if self.revealed:
+        if self._freeze_message:
+            hint = self._freeze_message
+        elif self.revealed:
             hint = "Enter / Continue for the next card"
         elif self.selected is None:
             hint = "1–9, 0 pick a choice"
@@ -461,12 +489,18 @@ class Application:
             hint = "Enter confirms · pick another to change"
         tk.Label(footer, text=hint, bg=THEME_BG, fg=THEME_FG_DIM,
                  font=FONT_HINT).pack(side="left")
+        if self.warnings:
+            tk.Label(
+                footer, text="⚠ " + " · ".join(self.warnings),
+                bg=THEME_BG, fg="#d9c04f", font=FONT_META,
+                justify="left", wraplength=self._window_width - 160,
+            ).pack(side="bottom", anchor="w", pady=(2, 0))
 
         action_text = "Continue" if self.revealed else "Confirm"
         action_command = self._continue if self.revealed else self._confirm
         action = flat_button(footer, action_text, command=action_command,
                              kind="accent")
-        if not self.revealed and self.selected is None:
+        if self.locked or (not self.revealed and self.selected is None):
             action.configure(state="disabled", bg="#3a3a3a", fg="#777777")
         action.pack(side="right")
 

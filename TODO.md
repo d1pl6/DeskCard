@@ -7,7 +7,7 @@
     - Answer matching
         1. Relaxed case, strict diacritics
             - Trim spaces + case-insensitive; typed diacritics must match the target (ř/ě/ů etc. still count as mistakes) — practices correct spelling without case noise.
-        2. Exact string
+        2. [x] Exact string
             - Typed answer must match target exactly, including capitalization.
         3. Ignore diacritics
             - Also accepts missing diacritics (šest = sest accepted).
@@ -20,6 +20,7 @@
     - show next card in...
     - show "time passed: ", "cards in batch: "session batches: "
     - Theme change
+- [ ] Fix blinking screen
 - [ ] Editor
 - [ ] TTS
 - [ ] Loader (UI) should lock text/audio/image if errors occured in loaded desk

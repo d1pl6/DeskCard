@@ -189,6 +189,50 @@ class SessionTests(unittest.TestCase):
         cards = [event.card_ids[0] for event in session if hasattr(event, "spec")]
         self.assertEqual(cards, ["low", "mid", "high"])
 
+    def test_all_exercises_order_by_lowest_score(self):
+        deck = {
+            "example": {
+                "enabled": True,
+                "high": {
+                    "front": {"text": "High"},
+                    "back": {"text": "High back"},
+                    "score": 90,
+                },
+                "low": {
+                    "front": {"text": "Low"},
+                    "back": {"text": "Low back"},
+                    "score": 5,
+                },
+                "mid": {
+                    "front": {"text": "Mid"},
+                    "back": {"text": "Mid back"},
+                    "score": 40,
+                },
+            },
+        }
+        path = Path(tempfile.mkdtemp()) / "deck.json"
+        path.write_text(json.dumps(deck), encoding="utf-8")
+        base = settings()["exercises"]["anki"]["settings"]
+        for name in ("anki", "choose", "connect", "write"):
+            with self.subTest(exercise=name):
+                data = {
+                    "global": {
+                        "delay": "0", "session": "3", "batch": "1", "jitter": "0",
+                    },
+                    "exercises": {
+                        name: {"enabled": True, "settings": dict(base)},
+                    },
+                }
+                session = Session(
+                    load_config(path), data,
+                    rng=random.Random(1), save_categories=False,
+                )
+                cards = []
+                for event in session:
+                    if hasattr(event, "spec"):
+                        cards.extend(event.card_ids)
+                self.assertEqual(cards, ["low", "mid", "high"])
+
     def test_category_states_override_deck(self):
         path = write_deck(tempfile.mkdtemp())
         data = settings()

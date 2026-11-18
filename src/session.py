@@ -478,11 +478,11 @@ class Session:
                 if self.config.categories[card.category].enabled
                 and low <= card.score <= high
             ]
-            if name == "anki":
-                # Shuffle first so equal scores do not silently follow file
-                # order, then sort by score: weakest cards are shown first.
-                self.rng.shuffle(candidates)
-                candidates.sort(key=lambda card: card.score)
+            # Shuffle first so equal scores do not silently follow file order,
+            # then sort by score: weakest cards are shown first in every
+            # exercise, not just Anki.
+            self.rng.shuffle(candidates)
+            candidates.sort(key=lambda card: card.score)
             draws: list[_Draw] = []
             answer_texts: set[str] = set()
             for card in candidates:
