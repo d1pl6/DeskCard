@@ -120,26 +120,30 @@ def flat_button(parent, text, command=None, kind="dark", small=False, **kw):
     return tk.Button(parent, **options)
 
 
+def connect_colors(state, color, revealed, correct):
+    if revealed:
+        if correct:
+            return SUCCESS_BG, SUCCESS_BORDER, SUCCESS_FG
+        return WRONG_BG, WRONG_BORDER, WRONG_FG
+    if state == "selected":
+        return CARD_SELECTED, THEME_ACCENT, THEME_FG
+    if state == "paired":
+        return CONNECTED_BG, color, THEME_FG
+    return CARD_BG, CARD_BORDER, THEME_FG
+
+
 class ConnectItem(tk.Frame):
     """One prompt or answer card in a Connect column."""
 
     def __init__(self, parent, text, sub, state, selected, paired, color,
                  revealed, correct, on_click, wraplength, audio=None,
                  on_play=None, image=None):
-        if revealed:
-            if correct:
-                bg, border, fg = SUCCESS_BG, SUCCESS_BORDER, SUCCESS_FG
-            else:
-                bg, border, fg = WRONG_BG, WRONG_BORDER, WRONG_FG
-        elif state == "selected":
-            bg, border, fg = CARD_SELECTED, THEME_ACCENT, THEME_FG
-        elif state == "paired":
-            bg, border, fg = CONNECTED_BG, color, THEME_FG
-        else:
-            bg, border, fg = CARD_BG, CARD_BORDER, THEME_FG
+        bg, border, fg = connect_colors(state, color, revealed, correct)
 
         super().__init__(parent, bg=bg, highlightthickness=2,
                          highlightbackground=border, cursor="hand2")
+        self._fg_widgets = []
+        self._wrap_labels = []
         self._parts = [(self, bg)]
         inner = tk.Frame(self, bg=bg)
         inner.pack(fill="x", padx=12, pady=8)
@@ -149,6 +153,8 @@ class ConnectItem(tk.Frame):
                          anchor="w", justify="left", wraplength=wraplength)
         label.pack(anchor="w")
         self._parts.append((label, bg))
+        self._fg_widgets.append(label)
+        self._wrap_labels.append(label)
 
         if audio:
             audio_row = tk.Frame(inner, bg=bg)
@@ -169,15 +175,27 @@ class ConnectItem(tk.Frame):
                                  wraplength=wraplength)
             sub_label.pack(anchor="w", pady=(2, 0))
             self._parts.append((sub_label, bg))
-
-        if paired or revealed:
-            pass
+            self._fg_widgets.append(sub_label)
+            self._wrap_labels.append(sub_label)
 
         for widget, _colour in self._parts:
             widget.bind("<Button-1>", lambda _e, cb=on_click: cb())
         self.bind("<Button-1>", lambda _e, cb=on_click: cb())
         self.bind("<Enter>", lambda _e: self._hover(bg, True))
         self.bind("<Leave>", lambda _e: self._hover(bg, False))
+
+    def set_wraplength(self, wraplength):
+        for label in self._wrap_labels:
+            label.configure(wraplength=wraplength)
+
+    def set_appearance(self, state, color, revealed, correct):
+        """Recolour an existing card instead of rebuilding the whole grid."""
+        bg, border, fg = connect_colors(state, color, revealed, correct)
+        self.configure(highlightbackground=border, highlightcolor=border)
+        for widget, _colour in self._parts:
+            widget.configure(bg=bg)
+        for widget in self._fg_widgets:
+            widget.configure(fg=fg)
 
     def _hover(self, base, entering):
         pass
@@ -285,7 +303,7 @@ class Application:
             self.right_selected = None
         else:
             self.left_selected = index
-        self._build()
+        self._sync_state()
 
     def _click_right(self, index):
         if self.locked or self.revealed:
@@ -301,7 +319,7 @@ class Application:
             self.right_selected = None
         else:
             self.right_selected = index
-        self._build()
+        self._sync_state()
 
     def _enter(self):
         if self.locked:
@@ -324,17 +342,17 @@ class Application:
         self.reveal_correct = self.correct_count == n
         self.revealed = True
         self.locked = True
-        self._build()
+        self._sync_state()
         self._on_result(self.reveal_correct)
 
     def _continue(self):
         self._reset()
-        self._build()
+        self._sync_state()
 
     def retry(self):
         """Show the same pairs again for another attempt."""
         self._reset()
-        self._build()
+        self._sync_state()
 
     def on_skip(self):
         if self.locked:
@@ -352,7 +370,7 @@ class Application:
         """Lock the card and show a short status while the session waits."""
         self.locked = True
         self._freeze_message = message
-        self._build()
+        self._sync_state()
 
     def auto_play(self):
         """Play the first prompt's audio once when the card opens."""
@@ -379,7 +397,7 @@ class Application:
     def _warn(self, message):
         if message not in self.warnings:
             self.warnings = self.warnings + (message,)
-            self._build_footer()
+            self._sync_warning()
 
     def _on_configure(self, event):
         if event.widget is not self.root:
@@ -389,11 +407,16 @@ class Application:
         self._window_width = event.width
         if self._resize_job is not None:
             self.root.after_cancel(self._resize_job)
-        self._resize_job = self.root.after(120, self._rebuild)
+        self._resize_job = self.root.after(120, self._sync_wrap)
 
-    def _rebuild(self):
+    def _sync_wrap(self):
+        """Re-wrap existing cards after a resize; no widget teardown."""
         self._resize_job = None
-        self._build()
+        wrap = self._wraplength()
+        for item in (*self._left_widgets.values(), *self._right_widgets.values()):
+            item.set_wraplength(wrap)
+        self._schedule_draw()
+        self._sync_warning()
 
     def _on_destroy(self, event):
         if event.widget is not self.root:
@@ -432,11 +455,93 @@ class Application:
             self._window_width = width
         self._left_widgets = {}
         self._right_widgets = {}
+        self._skip_button = None
+        self._quit_button = None
+        self._action_button = None
+        self._hint_label = None
+        self._warning_label = None
+        self._footer = None
+        self._canvas = None
         for child in self.root.winfo_children():
             child.destroy()
         self._build_header()
         self._build_body()
         self._build_footer()
+        self._sync_state()
+        self._schedule_draw()
+
+    def _hint_text(self):
+        n = len(self.card.pairs)
+        if self._freeze_message:
+            return self._freeze_message
+        if self.revealed:
+            return f"{self.correct_count} of {n} correct"
+        if len(self.pairs) < n:
+            return f"Connect {n - len(self.pairs)} more"
+        if self.left_selected is None and self.right_selected is None:
+            return "Enter confirms"
+        return "Pick the other side"
+
+    def _right_color(self, row):
+        for left, right in self.pairs.items():
+            if right == row:
+                return self.pair_color.get(left, PAIR_COLORS[0])
+        return PAIR_COLORS[0]
+
+    def _sync_state(self):
+        """Recolour cards and refresh labels; never rebuild the tree."""
+        state = "disabled" if self.locked else "normal"
+        for button in (self._skip_button, self._quit_button):
+            if button is not None:
+                button.configure(state=state)
+        if self._action_button is not None:
+            disabled = self.locked or (
+                not self.revealed and len(self.pairs) != len(self.card.pairs))
+            self._action_button.configure(
+                state="disabled" if disabled else "normal",
+                bg="#3a3a3a" if disabled else THEME_ACCENT,
+                fg="#777777" if disabled else THEME_ACCENT_FG,
+            )
+        if self._hint_label is not None:
+            self._hint_label.configure(text=self._hint_text())
+        for row, item in self._left_widgets.items():
+            correct = self._pair_correct(row) if self.revealed else None
+            item.set_appearance(
+                self._left_state(row),
+                self.pair_color.get(row, PAIR_COLORS[0]),
+                self.revealed, correct,
+            )
+        for row, item in self._right_widgets.items():
+            correct = None
+            if self.revealed and row in self.reverse:
+                correct = (self.left_order[self.reverse[row]]
+                           == self.right_order[row])
+            item.set_appearance(
+                self._right_state(row), self._right_color(row),
+                self.revealed, correct,
+            )
+        self._schedule_draw()
+        self._sync_warning()
+
+    def _sync_warning(self):
+        if self._footer is None:
+            return
+        wrap = max(240, self._window_width - 160)
+        if not self.warnings:
+            if self._warning_label is not None:
+                self._warning_label.pack_forget()
+            return
+        text = "⚠ " + " · ".join(self.warnings)
+        if self._warning_label is None:
+            self._warning_label = tk.Label(
+                self._footer, text=text, bg=THEME_BG, fg="#d9c04f",
+                font=FONT_META, justify="left", wraplength=wrap,
+            )
+            self._warning_label.pack(side="bottom", anchor="w", pady=(2, 0))
+        else:
+            self._warning_label.configure(text=text, wraplength=wrap)
+
+    def _schedule_draw(self):
         if self._draw_job is not None:
             try:
                 self.root.after_cancel(self._draw_job)
@@ -457,10 +562,12 @@ class Application:
 
         actions = tk.Frame(header, bg=THEME_BG)
         actions.pack(side="right")
-        flat_button(actions, "Skip", command=self.on_skip,
-                    kind="ghost").pack(side="left", padx=(0, 6))
-        flat_button(actions, "Quit", command=self.on_quit,
-                    kind="danger").pack(side="left")
+        self._skip_button = flat_button(
+            actions, "Skip", command=self.on_skip, kind="ghost")
+        self._skip_button.pack(side="left", padx=(0, 6))
+        self._quit_button = flat_button(
+            actions, "Quit", command=self.on_quit, kind="danger")
+        self._quit_button.pack(side="left")
 
     def _build_body(self):
         body = tk.Frame(self.root, bg=THEME_BG)
@@ -605,36 +712,15 @@ class Application:
         return max(180, min(420, int(column - 70)))
 
     def _build_footer(self):
-        footer = tk.Frame(self.root, bg=THEME_BG)
-        footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
-
-        n = len(self.card.pairs)
-        if self._freeze_message:
-            hint = self._freeze_message
-        elif self.revealed:
-            hint = f"{self.correct_count} of {n} correct"
-        elif len(self.pairs) < n:
-            hint = f"Connect {n - len(self.pairs)} more"
-        elif self.left_selected is None and self.right_selected is None:
-            hint = "Enter confirms"
-        else:
-            hint = "Pick the other side"
-        tk.Label(footer, text=hint, bg=THEME_BG, fg=THEME_FG_DIM,
-                 font=FONT_HINT).pack(side="left")
-        if self.warnings:
-            tk.Label(
-                footer, text="⚠ " + " · ".join(self.warnings),
-                bg=THEME_BG, fg="#d9c04f", font=FONT_META,
-                justify="left", wraplength=self._window_width - 160,
-            ).pack(side="bottom", anchor="w", pady=(2, 0))
-
-        action_text = "Continue" if self.revealed else "Confirm"
-        action_command = self._continue if self.revealed else self._confirm
-        action = flat_button(footer, action_text, command=action_command,
-                             kind="accent")
-        if self.locked or (not self.revealed and len(self.pairs) != n):
-            action.configure(state="disabled", bg="#3a3a3a", fg="#777777")
-        action.pack(side="right")
+        self._footer = tk.Frame(self.root, bg=THEME_BG)
+        self._footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
+        self._hint_label = tk.Label(
+            self._footer, text="", bg=THEME_BG, fg=THEME_FG_DIM,
+            font=FONT_HINT)
+        self._hint_label.pack(side="left")
+        self._action_button = flat_button(
+            self._footer, "Confirm", command=self._confirm, kind="accent")
+        self._action_button.pack(side="right")
 
     def _draw_lines(self):
         self._draw_job = None

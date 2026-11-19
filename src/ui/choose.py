@@ -247,6 +247,8 @@ class ChoiceCard(tk.Frame):
         self.state = state
         self.command = command
         self._parts = []  # (widget, colour) for hover recolouring
+        self._fg_widgets = []
+        self._cap_bg = cap_bg
 
         row = tk.Frame(self, bg=bg)
         row.pack(fill="both", expand=True, padx=12, pady=10)
@@ -255,12 +257,16 @@ class ChoiceCard(tk.Frame):
         cap = tk.Label(row, text=cap_text, bg=cap_bg, fg=fg, font=FONT_META,
                        width=2, pady=2)
         cap.pack(side="left", padx=(0, 10), anchor="n")
+        self._cap = cap
         self._parts += [(cap, cap_bg)]
+        self._fg_widgets.append(cap)
 
         label = tk.Label(row, text=text, bg=bg, fg=fg, font=font,
                          anchor="w", justify="left", wraplength=wraplength)
         label.pack(side="left", fill="x", expand=True)
         self._parts += [(self, bg), (row, bg), (label, bg)]
+        self._fg_widgets.append(label)
+        self._label = label
 
         if self.command is not None:
             for widget, _colour in self._parts:
@@ -271,6 +277,20 @@ class ChoiceCard(tk.Frame):
                 widget.bind("<Enter>", self._hover_on, add="+")
                 widget.bind("<Leave>", self._hover_off, add="+")
             self.configure(cursor="hand2")
+
+    def set_wraplength(self, wraplength):
+        self._label.configure(wraplength=wraplength)
+
+    def set_state(self, state):
+        """Recolour in place instead of rebuilding the choice grid."""
+        self.state = state
+        bg, border, fg, cap_bg = choice_colors(state)
+        self.configure(highlightbackground=border, highlightcolor=border)
+        for widget, _colour in self._parts:
+            widget.configure(bg=cap_bg if widget is self._cap else bg)
+        for widget in self._fg_widgets:
+            widget.configure(fg=fg)
+        self._cap_bg = cap_bg
 
     def _click(self, _event):
         self.command()
@@ -361,7 +381,7 @@ class Application:
         if self._choice_scroll is not None:
             self._choice_fraction = self._choice_scroll.canvas.yview()[0]
         self.selected = index
-        self._build()
+        self._sync_state()
 
     def _pick_key(self, index):
         if not self.revealed:
@@ -381,18 +401,18 @@ class Application:
         self.reveal_correct = self.selected == self.card.correct
         self.revealed = True
         self.locked = True
-        self._build()
+        self._sync_state()
         self._on_result(self.reveal_correct)
 
     def _continue(self):
         """Standalone-mode advance; the session runner supplies its own flow."""
         self._reset()
-        self._build()
+        self._sync_state()
 
     def retry(self):
         """Show the same card again for another attempt."""
         self._reset()
-        self._build()
+        self._sync_state()
 
     def on_skip(self):
         if self.locked:
@@ -410,7 +430,7 @@ class Application:
         """Lock the card and show a short status while the session waits."""
         self.locked = True
         self._freeze_message = message
-        self._build()
+        self._sync_state()
 
     def auto_play(self):
         """Play the prompt once when the card first opens."""
@@ -448,7 +468,7 @@ class Application:
     def _warn(self, message):
         if message not in self.warnings:
             self.warnings = self.warnings + (message,)
-            self._build_footer()
+            self._sync_warning()
 
     def _on_configure(self, event):
         """Re-wrap text when the window is resized; debounced to avoid churn."""
@@ -459,13 +479,25 @@ class Application:
         self._window_width = event.width
         if self._resize_job is not None:
             self.root.after_cancel(self._resize_job)
-        self._resize_job = self.root.after(120, self._rebuild)
+        self._resize_job = self.root.after(120, self._sync_wrap)
 
-    def _rebuild(self):
+    def _sync_wrap(self):
+        """Re-wrap existing text after a resize; no widget teardown."""
         self._resize_job = None
-        if self._choice_scroll is not None:
-            self._choice_fraction = self._choice_scroll.canvas.yview()[0]
-        self._build()
+        wrap = max(400, min(900, self._window_width - 220))
+        for label in self._prompt_wrap_labels:
+            if label.winfo_exists():
+                label.configure(wraplength=wrap)
+        columns = 1 if len(self.card.choices) <= 3 else 2
+        choice_wrap = self._choice_wraplength(columns)
+        for card in self._choice_widgets.values():
+            card.set_wraplength(choice_wrap)
+        if self._answer_panel is not None:
+            answer_wrap = self._answer_wraplength(self.card.has_image)
+            for label in self._answer_wrap_labels:
+                if label.winfo_exists():
+                    label.configure(wraplength=answer_wrap)
+        self._sync_warning()
 
     def _on_destroy(self, event):
         if event.widget is self.root and self._resize_job is not None:
@@ -499,11 +531,85 @@ class Application:
         if width > 1:
             self._window_width = width
         self._choice_scroll = None
+        self._choice_widgets = {}
+        self._prompt_wrap_labels = []
+        self._answer_wrap_labels = []
+        self._skip_button = None
+        self._quit_button = None
+        self._hint_label = None
+        self._warning_label = None
+        self._footer = None
+        self._action_button = None
+        self._choice_holder = None
+        self._answer_holder = None
+        self._answer_panel = None
         for child in self.root.winfo_children():
             child.destroy()
         self._build_header()
         self._build_footer()
         self._build_body()
+        self._sync_state()
+
+    def _hint_text(self):
+        if self._freeze_message:
+            return self._freeze_message
+        if self.selected is None:
+            return "1–9, 0 pick a choice"
+        return "Enter confirms · pick another to change"
+
+    def _sync_state(self):
+        """Update only the widgets that change between interactions."""
+        state = "disabled" if self.locked else "normal"
+        for button in (self._skip_button, self._quit_button):
+            if button is not None:
+                button.configure(state=state)
+        if self._action_button is not None:
+            disabled = self.locked or (not self.revealed and self.selected is None)
+            self._action_button.configure(
+                state="disabled" if disabled else "normal",
+                bg="#3a3a3a" if disabled else THEME_ACCENT,
+                fg="#777777" if disabled else THEME_ACCENT_FG,
+            )
+        if self._hint_label is not None:
+            self._hint_label.configure(text=self._hint_text())
+        for value, card in self._choice_widgets.items():
+            card.set_state("selected" if value == self.selected else "idle")
+        if self._choice_holder is not None:
+            if self.revealed:
+                self._choice_holder.pack_forget()
+            else:
+                self._choice_holder.pack(fill="both", expand=True)
+        if self._answer_holder is not None:
+            if self.revealed:
+                if self._answer_panel is None:
+                    self._build_answer_stage(self._answer_holder)
+                self._answer_holder.pack(fill="both", expand=True)
+            else:
+                self._answer_holder.pack_forget()
+                if self._answer_panel is not None:
+                    self._answer_panel.destroy()
+                    self._answer_panel = None
+                    self._answer_wrap_labels = []
+                    self._answer_audio_button = None
+        self._sync_warning()
+
+    def _sync_warning(self):
+        if self._footer is None:
+            return
+        wrap = max(240, self._window_width - 160)
+        if not self.warnings:
+            if self._warning_label is not None:
+                self._warning_label.pack_forget()
+            return
+        text = "⚠ " + " · ".join(self.warnings)
+        if self._warning_label is None:
+            self._warning_label = tk.Label(
+                self._footer, text=text, bg=THEME_BG, fg="#d9c04f",
+                font=FONT_META, justify="left", wraplength=wrap,
+            )
+            self._warning_label.pack(side="bottom", anchor="w", pady=(2, 0))
+        else:
+            self._warning_label.configure(text=text, wraplength=wrap)
 
     def _build_header(self):
         header = tk.Frame(self.root, bg=THEME_BG)
@@ -518,39 +624,23 @@ class Application:
 
         actions = tk.Frame(header, bg=THEME_BG)
         actions.pack(side="right")
-        flat_button(actions, "Skip", command=self.on_skip,
-                    kind="ghost").pack(side="left", padx=(0, 6))
-        flat_button(actions, "Quit", command=self.on_quit,
-                    kind="danger").pack(side="left")
+        self._skip_button = flat_button(
+            actions, "Skip", command=self.on_skip, kind="ghost")
+        self._skip_button.pack(side="left", padx=(0, 6))
+        self._quit_button = flat_button(
+            actions, "Quit", command=self.on_quit, kind="danger")
+        self._quit_button.pack(side="left")
 
     def _build_footer(self):
-        footer = tk.Frame(self.root, bg=THEME_BG)
-        footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
-
-        if self._freeze_message:
-            hint = self._freeze_message
-        elif self.revealed:
-            hint = "Enter / Continue for the next card"
-        elif self.selected is None:
-            hint = "1–9, 0 pick a choice"
-        else:
-            hint = "Enter confirms · pick another to change"
-        tk.Label(footer, text=hint, bg=THEME_BG, fg=THEME_FG_DIM,
-                 font=FONT_HINT).pack(side="left")
-        if self.warnings:
-            tk.Label(
-                footer, text="⚠ " + " · ".join(self.warnings),
-                bg=THEME_BG, fg="#d9c04f", font=FONT_META,
-                justify="left", wraplength=self._window_width - 160,
-            ).pack(side="bottom", anchor="w", pady=(2, 0))
-
-        action_text = "Continue" if self.revealed else "Confirm"
-        action_command = self._continue if self.revealed else self._confirm
-        action = flat_button(footer, action_text, command=action_command,
-                             kind="accent")
-        if self.locked or (not self.revealed and self.selected is None):
-            action.configure(state="disabled", bg="#3a3a3a", fg="#777777")
-        action.pack(side="right")
+        self._footer = tk.Frame(self.root, bg=THEME_BG)
+        self._footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
+        self._hint_label = tk.Label(
+            self._footer, text="", bg=THEME_BG, fg=THEME_FG_DIM,
+            font=FONT_HINT)
+        self._hint_label.pack(side="left")
+        self._action_button = flat_button(
+            self._footer, "Confirm", command=self._confirm, kind="accent")
+        self._action_button.pack(side="right")
 
     # -- body --------------------------------------------------------------
     def _build_body(self):
@@ -561,11 +651,9 @@ class Application:
 
         stage = tk.Frame(body, bg=THEME_BG)
         stage.pack(fill="both", expand=True, pady=(14, 0))
-
-        if self.revealed:
-            self._build_answer_stage(stage)
-        else:
-            self._build_choice_stage(stage)
+        self._choice_holder = tk.Frame(stage, bg=THEME_BG)
+        self._build_choice_stage(self._choice_holder)
+        self._answer_holder = tk.Frame(stage, bg=THEME_BG)
 
     def _prompt_card(self, parent):
         data = self.card
@@ -591,19 +679,23 @@ class Application:
             prompt_font = FONT_PROMPT_MEDIUM
         else:
             prompt_font = FONT_PROMPT_SMALL
-        tk.Label(
+        prompt_label = tk.Label(
             row, text=data.prompt, bg=PANEL_BG, fg=THEME_FG,
             font=prompt_font, justify="left", wraplength=wrap,
-        ).pack(side="left", anchor="n")
+        )
+        prompt_label.pack(side="left", anchor="n")
+        self._prompt_wrap_labels.append(prompt_label)
         if data.prompt_audio:
             self._prompt_audio_button = flat_button(
                 row, "▶", command=self._play_prompt, small=True)
             self._prompt_audio_button.pack(side="left", padx=(12, 0), pady=(8, 0))
 
         if data.prompt_sub:
-            tk.Label(inner, text=data.prompt_sub, bg=PANEL_BG,
-                     fg=THEME_FG_DIM, font=FONT_HINT, justify="left",
-                     wraplength=wrap).pack(anchor="w", pady=(2, 0))
+            sub_label = tk.Label(inner, text=data.prompt_sub, bg=PANEL_BG,
+                                 fg=THEME_FG_DIM, font=FONT_HINT,
+                                 justify="left", wraplength=wrap)
+            sub_label.pack(anchor="w", pady=(2, 0))
+            self._prompt_wrap_labels.append(sub_label)
         if data.prompt_image:
             image_frame(
                 inner, data.prompt_image, width=220, height=136,
@@ -649,12 +741,14 @@ class Application:
                     wraplength=wraplength,
                 )
                 card.grid(row=0, column=column, sticky="nsew", padx=6)
+                self._choice_widgets[index] = card
 
         grid_holder.bind_wheel_tree()
 
     def _build_answer_stage(self, stage):
         overlay = ScrollFrame(stage, COVER_BG, fill_width=False)
         overlay.pack(fill="both", expand=True)
+        self._answer_panel = overlay
 
         shadow = tk.Frame(overlay.content, bg="#161616")
         shadow.pack(padx=6, pady=6)
@@ -682,9 +776,11 @@ class Application:
         block.pack(anchor=anchor, pady=(8, 0))
         tk.Label(block, text="YOU CHOSE", bg=PANEL_BG, fg=THEME_FG_DIM,
                  font=FONT_META).pack(anchor="w")
-        tk.Label(block, text=picked, bg=WRONG_BG, fg=WRONG_FG,
-                 font=FONT, padx=8, pady=2, wraplength=wrap,
-                 justify="left").pack(anchor="w", pady=(2, 0))
+        chosen_label = tk.Label(block, text=picked, bg=WRONG_BG, fg=WRONG_FG,
+                                font=FONT, padx=8, pady=2, wraplength=wrap,
+                                justify="left")
+        chosen_label.pack(anchor="w", pady=(2, 0))
+        self._answer_wrap_labels.append(chosen_label)
 
     def _answer_body(self, parent):
         data = self.card
@@ -726,11 +822,13 @@ class Application:
                     answer_font = FONT_ANSWER_MEDIUM
                 else:
                     answer_font = FONT_ANSWER_SMALL
-                tk.Label(
+                answer_label = tk.Label(
                     answer_row, text=data.answer, bg=PANEL_BG,
                     fg=SUCCESS_BORDER, font=answer_font, wraplength=wrap,
                     justify=justify,
-                ).pack(side="left", anchor="n")
+                )
+                answer_label.pack(side="left", anchor="n")
+                self._answer_wrap_labels.append(answer_label)
                 if data.answer_audio:
                     self._answer_audio_button = flat_button(
                         answer_row, "▶", command=self._play_answer, small=True)
@@ -738,11 +836,13 @@ class Application:
                                                    pady=(4, 0))
 
             if data.answer_sub:
-                tk.Label(
+                answer_sub = tk.Label(
                     left, text=data.answer_sub, bg=PANEL_BG,
                     fg=THEME_FG_DIM, font=FONT_HINT, wraplength=wrap,
                     justify=justify,
-                ).pack(anchor="w", pady=(2, 0))
+                )
+                answer_sub.pack(anchor="w", pady=(2, 0))
+                self._answer_wrap_labels.append(answer_sub)
 
         if has_image:
             image_size = (180, 112) if has_text else (240, 150)

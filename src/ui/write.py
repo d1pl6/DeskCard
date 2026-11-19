@@ -155,6 +155,14 @@ class Application:
         self._prompt_audio_button = None
         self._answer_audio_button = None
 
+    def _refresh_entry(self):
+        """Restore the entry panel for another attempt."""
+        if self._entry is not None:
+            self._entry.delete(0, tk.END)
+            self._entry.configure(state="normal")
+        if not self.locked:
+            self.root.after_idle(self.focus_input)
+
     def _enter(self):
         if self.locked:
             return
@@ -169,20 +177,22 @@ class Application:
         self.reveal_correct = typed == self.card.answer
         self.revealed = True
         self.locked = True
-        self._build()
+        self._sync_state()
         self._on_result(self.reveal_correct)
 
     def _continue(self):
         """Standalone-mode advance; the session runner supplies its own flow."""
         self._reset()
-        self._build()
+        self._sync_state()
+        self._refresh_entry()
 
     def retry(self, attempt=None):
         """Show the same card again for another attempt."""
         if attempt is not None:
             self.attempt = attempt
         self._reset()
-        self._build()
+        self._sync_state()
+        self._refresh_entry()
 
     def show_retry(self):
         """Show a brief wrong-answer sheet without giving away the answer."""
@@ -192,7 +202,7 @@ class Application:
         self.reveal_correct = False
         self._retry_feedback = True
         self.locked = True
-        self._build()
+        self._sync_state()
 
     def reveal_timeout(self):
         """Show the missed answer when the answer timer expires."""
@@ -201,7 +211,7 @@ class Application:
         self.revealed = True
         self.reveal_correct = False
         self.locked = True
-        self._build()
+        self._sync_state()
 
     def on_skip(self):
         if self.locked:
@@ -251,7 +261,7 @@ class Application:
     def _warn(self, message):
         if message not in self.warnings:
             self.warnings = self.warnings + (message,)
-            self._build_footer()
+            self._sync_warning()
 
     def focus_input(self):
         """Put the caret in the answer entry when the pop-up becomes active."""
@@ -268,7 +278,7 @@ class Application:
         """Lock the card and show a short status while the session waits."""
         self.locked = True
         self._freeze_message = message
-        self._build()
+        self._sync_state()
 
     def _on_configure(self, event):
         if event.widget is not self.root:
@@ -278,11 +288,17 @@ class Application:
         self._window_width = event.width
         if self._resize_job is not None:
             self.root.after_cancel(self._resize_job)
-        self._resize_job = self.root.after(120, self._rebuild)
+        self._resize_job = self.root.after(120, self._sync_wrap)
 
-    def _rebuild(self):
+    def _sync_wrap(self):
+        """Re-wrap existing text after a resize; no widget teardown."""
         self._resize_job = None
-        self._build()
+        wrap = max(400, min(900, self._window_width - 220))
+        for label in self._prompt_wrap_labels:
+            if label.winfo_exists():
+                label.configure(wraplength=wrap)
+        self._sync_result()
+        self._sync_warning()
 
     def _on_destroy(self, event):
         if event.widget is self.root and self._resize_job is not None:
@@ -312,11 +328,86 @@ class Application:
         width = self.root.winfo_width()
         if width > 1:
             self._window_width = width
+        self._skip_button = None
+        self._quit_button = None
+        self._confirm_button = None
+        self._hint_label = None
+        self._warning_label = None
+        self._footer = None
+        self._entry_panel = None
+        self._result_panel = None
+        self._prompt_wrap_labels = []
+        self._chip_label = None
+        self._caption_label = None
+        self._answer_block = None
+        self._answer_label = None
+        self._answer_sub_label = None
+        self._typed_label = None
         for child in self.root.winfo_children():
             child.destroy()
         self._build_header()
         self._build_footer()
         self._build_body()
+        self._sync_state()
+
+    def _hint_text(self):
+        if self._freeze_message:
+            return self._freeze_message
+        if self._retry_feedback:
+            return "Not quite — try again"
+        return "Type the exact answer, then press Enter to confirm"
+
+    def _sync_state(self):
+        """Apply changing widgets without tearing down the whole screen."""
+        state = "disabled" if self.locked else "normal"
+        for button in (self._skip_button, self._quit_button):
+            if button is not None:
+                button.configure(state=state)
+        if self._entry is not None:
+            self._entry.configure(state=state)
+        if self._entry_panel is not None:
+            if self.revealed:
+                self._entry_panel.pack_forget()
+            else:
+                self._entry_panel.pack(fill="both", expand=True, padx=6, pady=6)
+        if self._result_panel is not None:
+            if self.revealed:
+                self._result_panel.pack(fill="both", expand=True, padx=6, pady=6)
+            else:
+                self._result_panel.pack_forget()
+        if self._hint_label is not None:
+            self._hint_label.configure(text=self._hint_text())
+        self._refresh_action()
+        self._sync_result()
+        self._sync_warning()
+
+    def _refresh_action(self):
+        if self._confirm_button is None:
+            return
+        disabled = self.locked or not self._current_text()
+        self._confirm_button.configure(
+            state="disabled" if disabled else "normal",
+            bg="#3a3a3a" if disabled else THEME_ACCENT,
+            fg="#777777" if disabled else THEME_ACCENT_FG,
+        )
+
+    def _sync_warning(self):
+        if self._footer is None:
+            return
+        wrap = max(240, self._window_width - 160)
+        if not self.warnings:
+            if self._warning_label is not None:
+                self._warning_label.pack_forget()
+            return
+        text = "⚠ " + " · ".join(self.warnings)
+        if self._warning_label is None:
+            self._warning_label = tk.Label(
+                self._footer, text=text, bg=THEME_BG, fg="#d9c04f",
+                font=FONT_META, justify="left", wraplength=wrap,
+            )
+            self._warning_label.pack(side="bottom", anchor="w", pady=(2, 0))
+        else:
+            self._warning_label.configure(text=text, wraplength=wrap)
 
     def _build_header(self):
         header = tk.Frame(self.root, bg=THEME_BG)
@@ -329,35 +420,24 @@ class Application:
                  font=FONT).pack(side="left")
         actions = tk.Frame(header, bg=THEME_BG)
         actions.pack(side="right")
-        state = "disabled" if self.locked else "normal"
-        flat_button(actions, "Skip", command=self.on_skip, kind="ghost",
-                    state=state).pack(side="left", padx=(0, 6))
-        flat_button(actions, "Quit", command=self.on_quit, kind="danger",
-                    state=state).pack(side="left")
+        self._skip_button = flat_button(
+            actions, "Skip", command=self.on_skip, kind="ghost")
+        self._skip_button.pack(side="left", padx=(0, 6))
+        self._quit_button = flat_button(
+            actions, "Quit", command=self.on_quit, kind="danger")
+        self._quit_button.pack(side="left")
 
     def _build_footer(self):
-        footer = tk.Frame(self.root, bg=THEME_BG)
-        footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
-        if self._freeze_message:
-            hint = self._freeze_message
-        elif self._retry_feedback:
-            hint = "Not quite — try again"
-        else:
-            hint = "Type the exact answer, then press Enter to confirm"
-        tk.Label(footer, text=hint, bg=THEME_BG, fg=THEME_FG_DIM,
-                 font=FONT_HINT).pack(side="left")
-        if self.warnings:
-            tk.Label(
-                footer, text="⚠ " + " · ".join(self.warnings),
-                bg=THEME_BG, fg="#d9c04f", font=FONT_META,
-                justify="left", wraplength=self._window_width - 160,
-            ).pack(side="bottom", anchor="w", pady=(2, 0))
-
-        action = flat_button(footer, "Confirm", command=self._confirm,
-                             kind="accent")
-        if self.locked or not self._current_text():
-            action.configure(state="disabled", bg="#3a3a3a", fg="#777777")
-        action.pack(side="right")
+        self._footer = tk.Frame(self.root, bg=THEME_BG)
+        self._footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
+        self._hint_label = tk.Label(
+            self._footer, text="", bg=THEME_BG, fg=THEME_FG_DIM,
+            font=FONT_HINT,
+        )
+        self._hint_label.pack(side="left")
+        self._confirm_button = flat_button(
+            self._footer, "Confirm", command=self._confirm, kind="accent")
+        self._confirm_button.pack(side="right")
 
     # -- body --------------------------------------------------------------
     def _build_body(self):
@@ -367,10 +447,11 @@ class Application:
 
         stage = tk.Frame(body, bg=THEME_BG)
         stage.pack(fill="both", expand=True, pady=(14, 0))
-        if self.revealed:
-            self._build_result(stage)
-        else:
-            self._build_entry(stage)
+        # Both stages are built once; _sync_state only toggles which is shown.
+        self._entry_panel = tk.Frame(stage, bg=THEME_BG)
+        self._build_entry(self._entry_panel)
+        self._result_panel = tk.Frame(stage, bg=THEME_BG)
+        self._build_result(self._result_panel)
 
     def _prompt_card(self, parent):
         data = self.card
@@ -389,17 +470,21 @@ class Application:
                 FONT_PROMPT_MEDIUM if length <= 80 else FONT_PROMPT_SMALL)
         row = tk.Frame(inner, bg=PANEL_BG)
         row.pack(anchor="w")
-        tk.Label(row, text=data.prompt, bg=PANEL_BG, fg=THEME_FG,
-                 font=font, justify="left", wraplength=wrap).pack(
-            side="left", anchor="n")
+        prompt_label = tk.Label(row, text=data.prompt, bg=PANEL_BG,
+                                fg=THEME_FG, font=font, justify="left",
+                                wraplength=wrap)
+        prompt_label.pack(side="left", anchor="n")
+        self._prompt_wrap_labels.append(prompt_label)
         if data.prompt_audio:
             self._prompt_audio_button = flat_button(
                 row, "▶", command=self._play_prompt, small=True)
             self._prompt_audio_button.pack(side="left", padx=(12, 0), pady=(8, 0))
         if data.prompt_sub:
-            tk.Label(inner, text=data.prompt_sub, bg=PANEL_BG,
-                     fg=THEME_FG_DIM, font=FONT_HINT, justify="left",
-                     wraplength=wrap).pack(anchor="w", pady=(2, 0))
+            sub_label = tk.Label(inner, text=data.prompt_sub, bg=PANEL_BG,
+                                 fg=THEME_FG_DIM, font=FONT_HINT,
+                                 justify="left", wraplength=wrap)
+            sub_label.pack(anchor="w", pady=(2, 0))
+            self._prompt_wrap_labels.append(sub_label)
         if data.prompt_image:
             image_frame(
                 inner, data.prompt_image, width=220, height=136,
@@ -409,7 +494,7 @@ class Application:
 
     def _build_entry(self, parent):
         card = tk.Frame(parent, bg=COVER_BG)
-        card.pack(fill="both", expand=True, padx=6, pady=6)
+        card.pack(fill="both", expand=True)
         inner = tk.Frame(card, bg=PANEL_BG)
         inner.pack(fill="both", expand=True, padx=6, pady=6)
         box = tk.Frame(inner, bg=PANEL_BG)
@@ -438,69 +523,77 @@ class Application:
         self.typed = self._current_text()
         self._refresh_action()
 
-    def _refresh_action(self):
-        for child in self.root.winfo_children():
-            if not isinstance(child, tk.Frame):
-                continue
-            for button in child.winfo_children():
-                if isinstance(button, tk.Button) and button.cget("text") == "Confirm":
-                    disabled = self.locked or not self._current_text()
-                    button.configure(
-                        state="disabled" if disabled else "normal",
-                        bg="#3a3a3a" if disabled else THEME_ACCENT,
-                        fg="#777777" if disabled else THEME_ACCENT_FG,
-                    )
-
     def _build_result(self, parent):
         overlay = tk.Frame(parent, bg=COVER_BG)
-        overlay.pack(fill="both", expand=True, padx=6, pady=6)
+        overlay.pack(fill="both", expand=True)
         sheet = tk.Frame(overlay, bg=PANEL_BG)
         sheet.pack(anchor="center", padx=6, pady=6)
         inner = tk.Frame(sheet, bg=PANEL_BG)
         inner.pack(padx=60, pady=26)
 
+        self._chip_label = tk.Label(
+            inner, text="", font=FONT_CHIP, padx=12, pady=4)
+        self._chip_label.pack(anchor="center")
+        self._caption_label = tk.Label(
+            inner, text="CORRECT ANSWER", bg=PANEL_BG,
+            fg=THEME_FG_DIM, font=FONT_META)
+
+        self._answer_block = tk.Frame(inner, bg=PANEL_BG)
+        answer_row = tk.Frame(self._answer_block, bg=PANEL_BG)
+        answer_row.pack(anchor="center", pady=(6, 0))
+        self._answer_label = tk.Label(
+            answer_row, text=self.card.answer, bg=PANEL_BG, font=FONT_ANSWER)
+        self._answer_label.pack(side="left", anchor="n")
+        if self.card.answer_audio:
+            self._answer_audio_button = flat_button(
+                answer_row, "▶", command=self._play_answer, small=True)
+            self._answer_audio_button.pack(side="left", padx=(12, 0), pady=(4, 0))
+        if self.card.answer_sub:
+            self._answer_sub_label = tk.Label(
+                self._answer_block, text=self.card.answer_sub, bg=PANEL_BG,
+                fg=THEME_FG_DIM, font=FONT_HINT)
+            self._answer_sub_label.pack(anchor="center", pady=(2, 0))
+        if self.card.answer_image:
+            image_frame(
+                self._answer_block, self.card.answer_image, width=260, height=160,
+                max_size=(252, 152), bg=PANEL_BG, font=FONT_META,
+            ).pack(anchor="center", pady=(8, 0))
+
+        self._typed_label = tk.Label(
+            inner, text="", bg=PANEL_BG, fg=THEME_FG_DIM, font=FONT_HINT,
+            justify="center")
+        self._typed_label.pack(anchor="center", pady=(10, 0))
+
+    def _sync_result(self):
+        if self._chip_label is None:
+            return
         correct = self.reveal_correct
         # An intermediate retry must not give the answer away; only the final
         # failure (or a timeout) shows the expected text.
         hide_answer = bool(self._retry_feedback) and not correct
         chip = "CORRECT" if correct else "TRY AGAIN" if hide_answer else "WRONG"
-        tk.Label(
-            inner, text=chip,
+        self._chip_label.configure(
+            text=chip,
             bg=SUCCESS_BG if correct else WRONG_BG,
             fg=SUCCESS_FG if correct else WRONG_FG,
-            font=FONT_CHIP, padx=12, pady=4,
-        ).pack(anchor="center")
+        )
         wrap = max(300, self._window_width - 200)
-        if not correct and not hide_answer:
-            tk.Label(inner, text="CORRECT ANSWER", bg=PANEL_BG,
-                     fg=THEME_FG_DIM, font=FONT_META).pack(
-                anchor="center", pady=(10, 0))
-        if not hide_answer:
-            answer_row = tk.Frame(inner, bg=PANEL_BG)
-            answer_row.pack(anchor="center", pady=(6, 0))
-            tk.Label(
-                answer_row, text=self.card.answer, bg=PANEL_BG,
-                fg=SUCCESS_BORDER if correct else WRONG_FG,
-                font=FONT_ANSWER, wraplength=wrap,
-            ).pack(side="left", anchor="n")
-            if self.card.answer_audio:
-                self._answer_audio_button = flat_button(
-                    answer_row, "▶", command=self._play_answer, small=True)
-                self._answer_audio_button.pack(side="left", padx=(12, 0),
-                                               pady=(4, 0))
-            if self.card.answer_sub:
-                tk.Label(inner, text=self.card.answer_sub, bg=PANEL_BG,
-                         fg=THEME_FG_DIM, font=FONT_HINT).pack(
-                    anchor="center", pady=(2, 0))
-            if self.card.answer_image:
-                image_frame(
-                    inner, self.card.answer_image, width=260, height=160,
-                    max_size=(252, 152), bg=PANEL_BG, font=FONT_META,
-                ).pack(anchor="center", pady=(8, 0))
-        if not correct:
-            tk.Label(inner, text=f"YOU TYPED: {self.typed}", bg=PANEL_BG,
-                     fg=THEME_FG_DIM, font=FONT_HINT, wraplength=wrap,
-                     justify="center").pack(anchor="center", pady=(10, 0))
+        self._answer_label.configure(
+            text=self.card.answer, wraplength=wrap,
+            fg=SUCCESS_BORDER if correct else WRONG_FG)
+        if self._answer_sub_label is not None:
+            self._answer_sub_label.configure(wraplength=wrap)
+        self._typed_label.configure(
+            text=f"YOU TYPED: {self.typed}", wraplength=wrap)
+        if hide_answer:
+            self._caption_label.pack_forget()
+            self._answer_block.pack_forget()
+        else:
+            if correct:
+                self._caption_label.pack_forget()
+            else:
+                self._caption_label.pack(anchor="center", pady=(10, 0))
+            self._answer_block.pack(anchor="center")
 
 
 def main():

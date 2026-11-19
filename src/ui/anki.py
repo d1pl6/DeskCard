@@ -150,7 +150,7 @@ class Application:
         self.locked = True
         # Reflect the lock and grade immediately; the callback may then close
         # the window or freeze it, but the UI is never left looking clickable.
-        self._build()
+        self._sync_state()
         self._on_grade(grade)
 
     def _continue(self):
@@ -160,7 +160,7 @@ class Application:
         self.locked = False
         self._freeze_message = ""
         self._auto_played.clear()
-        self._build()
+        self._sync_state()
 
     def on_skip(self):
         if self.locked:
@@ -179,7 +179,7 @@ class Application:
         """Lock the card and show a short status while the session waits."""
         self.locked = True
         self._freeze_message = message
-        self._build()
+        self._sync_state()
 
     def auto_play(self):
         """Play the front audio once when the card first opens."""
@@ -203,7 +203,7 @@ class Application:
     def _warn(self, message):
         if message not in self.warnings:
             self.warnings = self.warnings + (message,)
-            self._build_footer()
+            self._sync_warning()
 
     def _on_configure(self, event):
         if event.widget is not self.root:
@@ -213,11 +213,17 @@ class Application:
         self._window_width = event.width
         if self._resize_job is not None:
             self.root.after_cancel(self._resize_job)
-        self._resize_job = self.root.after(120, self._rebuild)
+        self._resize_job = self.root.after(120, self._sync_wrap)
 
-    def _rebuild(self):
+    def _sync_wrap(self):
+        """Re-wrap existing text after a resize; no widget teardown."""
         self._resize_job = None
-        self._build()
+        wrap = self._wraplength()
+        for label in self._face_wrap_labels:
+            if label.winfo_exists():
+                label.configure(wraplength=wrap)
+        if self._warning_label is not None and self._warning_label.winfo_exists():
+            self._warning_label.configure(wraplength=max(240, wrap - 260))
 
     def _on_destroy(self, event):
         if event.widget is self.root and self._resize_job is not None:
@@ -250,11 +256,69 @@ class Application:
         width = self.root.winfo_width()
         if width > 1:
             self._window_width = width
+        self._skip_button = None
+        self._quit_button = None
+        self._show_button = None
+        self._reveal_area = None
+        self._grade_buttons = []
+        self._hint_label = None
+        self._warning_label = None
+        self._footer = None
+        self._face_wrap_labels = []
         for child in self.root.winfo_children():
             child.destroy()
         self._build_header()
         self._build_body()
         self._build_footer()
+        self._sync_state()
+
+    def _hint_text(self):
+        if self._freeze_message:
+            return self._freeze_message
+        if self.locked and self.last_grade is not None:
+            return f"Graded {self.last_grade}"
+        if self.revealed:
+            return "Grade with 1–5 or click a button"
+        return "Enter or Space shows the answer"
+
+    def _sync_state(self):
+        """Apply the small set of changing properties without rebuilding."""
+        state = "disabled" if self.locked else "normal"
+        for button in (self._skip_button, self._quit_button,
+                       *self._grade_buttons):
+            if button is not None:
+                button.configure(state=state)
+        if self._reveal_area is not None:
+            if self.revealed:
+                self._reveal_area.pack(fill="x", pady=(6, 8))
+            else:
+                self._reveal_area.pack_forget()
+        if self._show_button is not None:
+            if self.revealed:
+                self._show_button.pack_forget()
+            else:
+                self._show_button.pack(pady=(12, 0))
+        if self._hint_label is not None:
+            self._hint_label.configure(text=self._hint_text())
+        self._sync_warning()
+
+    def _sync_warning(self):
+        if self._footer is None:
+            return
+        wrap = max(240, self._wraplength() - 260)
+        if not self.warnings:
+            if self._warning_label is not None:
+                self._warning_label.pack_forget()
+            return
+        text = "⚠ " + " · ".join(self.warnings)
+        if self._warning_label is None:
+            self._warning_label = tk.Label(
+                self._footer, text=text, bg=THEME_BG, fg="#d9a54f",
+                font=FONT_HINT, wraplength=wrap,
+            )
+            self._warning_label.pack(side="right")
+        else:
+            self._warning_label.configure(text=text, wraplength=wrap)
 
     def _build_header(self):
         header = tk.Frame(self.root, bg=THEME_BG)
@@ -269,11 +333,12 @@ class Application:
 
         actions = tk.Frame(header, bg=THEME_BG)
         actions.pack(side="right")
-        state = "disabled" if self.locked else "normal"
-        flat_button(actions, "Skip", command=self.on_skip, kind="ghost",
-                    state=state).pack(side="left", padx=(0, 6))
-        flat_button(actions, "Quit", command=self.on_quit, kind="danger",
-                    state=state).pack(side="left")
+        self._skip_button = flat_button(
+            actions, "Skip", command=self.on_skip, kind="ghost")
+        self._skip_button.pack(side="left", padx=(0, 6))
+        self._quit_button = flat_button(
+            actions, "Quit", command=self.on_quit, kind="danger")
+        self._quit_button.pack(side="left")
 
     def _wraplength(self):
         return max(320, min(680, self._window_width - 120))
@@ -295,17 +360,20 @@ class Application:
         text_font = FONT_TITLE if len(text) <= 24 else FONT_TITLE_SMALL
         row = tk.Frame(inner, bg=PANEL_BG)
         row.pack(anchor="center", pady=(6, 0))
-        tk.Label(row, text=text, bg=PANEL_BG, fg=THEME_FG,
-                 font=text_font, justify="center", wraplength=wrap
-                 ).pack(side="left", anchor="n")
+        text_label = tk.Label(row, text=text, bg=PANEL_BG, fg=THEME_FG,
+                              font=text_font, justify="center", wraplength=wrap)
+        text_label.pack(side="left", anchor="n")
+        self._face_wrap_labels.append(text_label)
         if side.audio:
             flat_button(row, "▶", command=lambda s=side: self._play(s),
                         small=True).pack(side="left", padx=(12, 0), pady=(4, 0))
 
         if side.sub:
-            tk.Label(inner, text=side.sub, bg=PANEL_BG, fg=THEME_FG_DIM,
-                     font=FONT_SUB, justify="center", wraplength=wrap
-                     ).pack(anchor="center", pady=(4, 0))
+            sub_label = tk.Label(inner, text=side.sub, bg=PANEL_BG,
+                                 fg=THEME_FG_DIM, font=FONT_SUB,
+                                 justify="center", wraplength=wrap)
+            sub_label.pack(anchor="center", pady=(4, 0))
+            self._face_wrap_labels.append(sub_label)
 
         if side.image:
             slot = image_frame(
@@ -325,53 +393,42 @@ class Application:
         front = self._face_block(body, self.card.front, wrap)
         front.pack(fill="x", pady=(8, 6))
 
-        if self.revealed:
-            back = self._face_block(body, self.card.back, wrap)
-            back.pack(fill="x", pady=(6, 8))
+        # Built once and shown/hidden by _sync_state; no teardown on reveal.
+        self._reveal_area = tk.Frame(body, bg=THEME_BG)
+        back = self._face_block(self._reveal_area, self.card.back, wrap)
+        back.pack(fill="x", pady=(6, 8))
+        grade_frame = tk.Frame(self._reveal_area, bg=THEME_BG)
+        grade_frame.pack(fill="x", side="bottom", pady=(8, 0))
+        for column in range(len(GRADES)):
+            grade_frame.columnconfigure(column, weight=1, uniform="grade")
+        for column, (label, delta, bg, hover) in enumerate(GRADES):
+            sign = "+" if delta > 0 else ""
+            button = flat_button(
+                grade_frame, f"{label}\n{sign}{delta}",
+                command=lambda grade=label: self._grade(grade),
+                kind="ghost", small=False,
+                bg=bg, activebackground=hover, fg="#ffffff",
+                takefocus=1,
+            )
+            button.grid(row=0, column=column, sticky="nsew", padx=4, pady=4)
+            self._grade_buttons.append(button)
 
-            grade_frame = tk.Frame(body, bg=THEME_BG)
-            grade_frame.pack(fill="x", side="bottom", pady=(8, 0))
-            for column in range(len(GRADES)):
-                grade_frame.columnconfigure(column, weight=1, uniform="grade")
-            for column, (label, delta, bg, hover) in enumerate(GRADES):
-                sign = "+" if delta > 0 else ""
-                flat_button(
-                    grade_frame, f"{label}\n{sign}{delta}",
-                    command=lambda grade=label: self._grade(grade),
-                    kind="ghost", small=False,
-                    bg=bg, activebackground=hover, fg="#ffffff",
-                    takefocus=1,
-                    state="disabled" if self.locked else "normal",
-                ).grid(row=0, column=column, sticky="nsew", padx=4, pady=4)
-        else:
-            show = flat_button(body, "Show Answer", command=self._reveal,
-                               kind="accent")
-            show.pack(pady=(12, 0))
+        self._show_button = flat_button(
+            body, "Show Answer", command=self._reveal, kind="accent")
 
     def _reveal(self):
         self.revealed = True
-        self._build()
+        self._sync_state()
         self._auto_play("back", self.card.back)
 
     def _build_footer(self):
-        footer = tk.Frame(self.root, bg=THEME_BG)
-        footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
-
-        if self._freeze_message:
-            hint = self._freeze_message
-        elif self.locked and self.last_grade is not None:
-            hint = f"Graded {self.last_grade}"
-        elif self.revealed:
-            hint = "Grade with 1–5 or click a button"
-        else:
-            hint = "Enter or Space shows the answer"
-        tk.Label(footer, text=hint, bg=THEME_BG, fg=THEME_FG_DIM,
-                 font=FONT_HINT).pack(side="left")
-        if self.warnings:
-            warning = "⚠ " + " · ".join(self.warnings)
-            tk.Label(footer, text=warning, bg=THEME_BG, fg="#d9a54f",
-                     font=FONT_HINT, wraplength=max(240, self._wraplength() - 260)
-                     ).pack(side="right")
+        self._footer = tk.Frame(self.root, bg=THEME_BG)
+        self._footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
+        self._hint_label = tk.Label(
+            self._footer, text="", bg=THEME_BG, fg=THEME_FG_DIM,
+            font=FONT_HINT,
+        )
+        self._hint_label.pack(side="left")
 
 
 def main():

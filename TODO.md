@@ -14,13 +14,12 @@
 - [ ] Tooltips
 - [ ] Settings
     - Show "Skip" / "Quit"
+    - show "time passed: ", "cards in batch: "session batches: "
     - Score change
     - Default global settings
     - `**on**/off` increase "direction" counter in "normal" and "reverse" modes
     - show next card in...
-    - show "time passed: ", "cards in batch: "session batches: "
     - Theme change
-- [ ] Fix blinking screen
 - [ ] Editor
 - [ ] TTS
 - [ ] Loader (UI) should lock text/audio/image if errors occured in loaded desk
