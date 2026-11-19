@@ -9,6 +9,7 @@ from tkinter import messagebox
 try:
     from .about import APP_NAME, show_about
     from .helpers.blocks import ExerciseTab, Section
+    from .helpers.tooltips import SETTING_TOOLTIPS, add_tooltip
     from .runner import SessionRunner
     from .helpers.theme import (
         THEME_ACCENT, THEME_DANGER, THEME_DANGER_HOVER, THEME_FIELD_BG,
@@ -23,6 +24,7 @@ except ImportError:  # started as a script, not as a package
 
     from about import APP_NAME, show_about
     from helpers.blocks import ExerciseTab, Section
+    from helpers.tooltips import SETTING_TOOLTIPS, add_tooltip
     from runner import SessionRunner
     from helpers.theme import (
         THEME_ACCENT, THEME_DANGER, THEME_DANGER_HOVER, THEME_FIELD_BG,
@@ -183,27 +185,32 @@ DIRECTION_OPTIONS = [
 ]
 
 
-def prompt_section():
-    """Prompt settings shared by Choose, Connect and Write."""
-    return {
-        "title": "Prompt settings",
-        "blocks": [
-            {"key": "prompt_type", "label": "Prompt content", "kind": "checks",
-             "options": CONTENT_OPTIONS, "default": "text_only"},
-            {"key": "prompt_sub", "label": "Show Sub", "kind": "radios",
-             "advanced": True, "options": SUB_OPTIONS, "default": "always"},
+def prompt_section(include_listens=True):
+    """Prompt settings shared by Anki, Choose, Connect and Write."""
+    blocks = [
+        {"key": "prompt_type", "label": "Prompt content", "kind": "checks",
+         "options": CONTENT_OPTIONS, "default": "text_only"},
+        {"key": "prompt_sub", "label": "Show Sub", "kind": "radios",
+         "advanced": True, "options": SUB_OPTIONS, "default": "always"},
+    ]
+    if include_listens:
+        blocks.extend([
             {"kind": "subheading", "text": "Difficulty", "advanced": True},
             {"key": "prompt_listens", "label": "Re-listens allowed",
-             "kind": "entry", "hint": "0 = none", "advanced": True, "default": "0"},
-        ],
-    }
+             "kind": "entry", "hint": "0 = none", "advanced": True, "default": "5"},
+        ])
+    return {"title": "Prompt settings", "blocks": blocks}
 
 
 ANKI_SECTIONS = [
+    prompt_section(include_listens=False),
     {
         "title": "Answer settings",
-        "advanced": True,
         "blocks": [
+            {"key": "answer_prompt", "label": "Answer content", "kind": "checks",
+             "options": CONTENT_OPTIONS, "default": "text_only"},
+            {"key": "answer_sub", "label": "Show Sub", "kind": "radios",
+             "advanced": True, "options": SUB_OPTIONS, "default": "after"},
             {"kind": "subheading", "text": "Difficulty", "advanced": True},
             {"key": "answer_time", "label": "Answer time limit",
              "kind": "entry", "hint": "0 = unlimited", "advanced": True, "default": "0"},
@@ -216,6 +223,9 @@ ANKI_SECTIONS = [
              "options": DIRECTION_OPTIONS, "default": "normal"},
             {"key": "other_score", "label": "Score (0-100)", "kind": "entry",
              "default": "0-99"},
+            {"key": "random_score", "label": "Random score for next card",
+             "kind": "entry", "hint": "0 = exact lowest score", "advanced": True,
+             "default": "10"},
             {"key": "other_close_time", "label": "Delay before the window closes",
              "kind": "entry", "advanced": True, "default": "3s"},
         ],
@@ -245,6 +255,9 @@ CHOOSE_SECTIONS = [
              "options": DIRECTION_OPTIONS, "default": "normal"},
             {"key": "other_score", "label": "Score (0-100)", "kind": "entry",
              "default": "0-99"},
+            {"key": "random_score", "label": "Random score for next card",
+             "kind": "entry", "hint": "0 = exact lowest score", "advanced": True,
+             "default": "10"},
             {"key": "other_close_time", "label": "Delay before the window closes",
              "kind": "entry", "advanced": True, "default": "3s"},
             {"key": "other_repeat", "kind": "check", "text": "Repeat until correct",
@@ -278,6 +291,9 @@ CONNECT_SECTIONS = [
              "options": DIRECTION_OPTIONS, "default": "normal"},
             {"key": "other_score", "label": "Score (0-100)", "kind": "entry",
              "default": "0-99"},
+            {"key": "random_score", "label": "Random score for next card",
+             "kind": "entry", "hint": "0 = exact lowest score", "advanced": True,
+             "default": "10"},
             {"key": "other_close_time", "label": "Delay before the window closes",
              "kind": "entry", "advanced": True, "default": "3s"},
             {"key": "other_repeat", "kind": "check", "text": "Repeat until correct",
@@ -313,6 +329,9 @@ WRITE_SECTIONS = [
              "options": DIRECTION_OPTIONS, "default": "normal"},
             {"key": "other_score", "label": "Score (0-100)", "kind": "entry",
              "default": "0-99"},
+            {"key": "random_score", "label": "Random score for next card",
+             "kind": "entry", "hint": "0 = exact lowest score", "advanced": True,
+             "default": "10"},
             {"key": "other_close_time", "label": "Delay before the window closes",
              "kind": "entry", "advanced": True, "default": "3s"},
             {"key": "other_repeat", "kind": "check", "text": "Repeat until correct",
@@ -369,9 +388,11 @@ class Application:
 
         self.header_settings = tk.Button(self.header_buttons, text="Settings", command=self.on_header_settings)
         self.header_settings.grid(column=0, row=0, padx=10)
+        add_tooltip(self.header_settings, SETTING_TOOLTIPS["settings"])
 
         self.header_about = tk.Button(self.header_buttons, text="About", command=self.on_header_about)
         self.header_about.grid(column=1, row=0)
+        add_tooltip(self.header_about, SETTING_TOOLTIPS["about"])
 
 
     # Load desk
@@ -390,9 +411,11 @@ class Application:
         self.desk_entry.grid(column=0, row=0, sticky="ew", padx=(0, 10))
         self.desk_entry.bind("<Return>", self.on_desk_entry_submit)
         self.desk_entry.bind("<KP_Enter>", self.on_desk_entry_submit)
+        add_tooltip(self.desk_entry, SETTING_TOOLTIPS["deck_entry"])
 
         self.desk_browse = tk.Button(self.desk_middle, text="Browse deck", command=self.on_desk_browse)
         self.desk_browse.grid(column=1, row=0, sticky="e")
+        add_tooltip(self.desk_browse, SETTING_TOOLTIPS["browse_deck"])
 
         self.desk_actions = tk.Frame(self.desk)
         self.desk_actions.grid(column=0, row=2, sticky="ew")
@@ -400,9 +423,11 @@ class Application:
 
         self.desk_edit = tk.Button(self.desk_actions, text="Edit deck", command=self.on_desk_edit)
         self.desk_edit.grid(column=0, row=0, sticky="w")
+        add_tooltip(self.desk_edit, SETTING_TOOLTIPS["edit_deck"])
 
         self.desk_status = tk.Label(self.desk_actions, text="No deck selected")
         self.desk_status.grid(column=1, row=0, sticky="e")
+        add_tooltip(self.desk_status, SETTING_TOOLTIPS["deck_status"])
 
 
     # Exercises
@@ -435,13 +460,13 @@ class Application:
 
         row = 1
         self.global_time_text, self.global_time_entry, row = (
-            self._global_setting(row, "Delay:"))
+            self._global_setting(row, "Delay:", SETTING_TOOLTIPS["global_delay"]))
         self.global_session_text, self.global_session_entry, row = (
-            self._global_setting(row, "Batches in session:"))
+            self._global_setting(row, "Batches in session:", SETTING_TOOLTIPS["global_session"]))
         self.global_batch_text, self.global_batch_entry, row = (
-            self._global_setting(row, "Cards in batch:"))
+            self._global_setting(row, "Cards in batch:", SETTING_TOOLTIPS["global_batch"]))
         self.global_jitter_text, self.global_jitter_entry, row = (
-            self._global_setting(row, "Delay Jitter:"))
+            self._global_setting(row, "Delay Jitter:", SETTING_TOOLTIPS["global_jitter"]))
         self._reset_globals()
 
         # Loaded categories
@@ -453,6 +478,7 @@ class Application:
 
         self.categories_label = self.categories_scroll.label(text="Loaded categories", font=THEME_FONT_BOLD)
         self.categories_label.pack(fill="x", padx=2)
+        add_tooltip(self.categories_label, SETTING_TOOLTIPS["loaded_categories"])
 
         self.categories_list = tk.Frame(self.categories_scroll.body)
         self.categories_list.pack(fill="x")
@@ -473,18 +499,22 @@ class Application:
             background=THEME_DANGER, activebackground=THEME_DANGER_HOVER,
         )
         self.footer_quit.grid(column=0, row=0, sticky="w")
+        add_tooltip(self.footer_quit, SETTING_TOOLTIPS["quit"])
 
         self.footer_reset = tk.Button(
             self.footer, text="Reset", height=2, command=self.on_footer_reset,
             background=THEME_DANGER, activebackground=THEME_DANGER_HOVER,
         )
         self.footer_reset.grid(column=2, row=0, padx=(0, 10))
+        add_tooltip(self.footer_reset, SETTING_TOOLTIPS["reset"])
 
         self.footer_load = tk.Button(self.footer, text="Load settings", height=2, command=self.on_footer_load)
         self.footer_load.grid(column=3, row=0, padx=(0, 10))
+        add_tooltip(self.footer_load, SETTING_TOOLTIPS["load_settings"])
 
         self.footer_save = tk.Button(self.footer, text="Save settings", height=2, command=self.on_footer_save)
         self.footer_save.grid(column=4, row=0, padx=(0, 10))
+        add_tooltip(self.footer_save, SETTING_TOOLTIPS["save_settings"])
 
         # Start stays disabled until a deck is loaded.
         self.footer_start = tk.Button(
@@ -492,6 +522,7 @@ class Application:
             disabledforeground=THEME_FG_DIM,
         )
         self.footer_start.grid(column=5, row=0)
+        add_tooltip(self.footer_start, SETTING_TOOLTIPS["start"])
         self._set_start_enabled(False)
 
         self._bind_keys()
@@ -503,12 +534,14 @@ class Application:
             background=THEME_ACCENT if enabled else THEME_FIELD_BG,
         )
 
-    def _global_setting(self, row, label_text):
+    def _global_setting(self, row, label_text, tooltip_text=None):
         """One Global Settings row"""
         label = tk.Label(self.global_frame, text=label_text, font=THEME_FONT)
         label.grid(row=row, column=0, sticky="w", padx=(2, 4))
         entry = tk.Entry(self.global_frame, width=5)
         entry.grid(row=row, column=1, sticky="w")
+        add_tooltip(label, tooltip_text)
+        add_tooltip(entry, tooltip_text)
         return label, entry, row + 1
 
     def _fit_window(self):
@@ -558,6 +591,7 @@ class Application:
         enabled_var = tk.IntVar()
         enabled = tk.Checkbutton(bar, text="Enabled", variable=enabled_var)
         enabled.grid(column=0, row=0, padx=10, pady=8, sticky="w")
+        add_tooltip(enabled, SETTING_TOOLTIPS["enabled"])
         setattr(self, f"{name}_enabled_var", enabled_var)
         setattr(self, f"{name}_enabled", enabled)
 
@@ -567,6 +601,7 @@ class Application:
             command=lambda: self._show_advanced(name),
         )
         advanced.grid(column=1, row=0, padx=10, pady=8, sticky="e")
+        add_tooltip(advanced, SETTING_TOOLTIPS["advanced"])
         setattr(self, f"{name}_advanced_var", advanced_var)
         setattr(self, f"{name}_advanced", advanced)
 
@@ -734,6 +769,7 @@ class Application:
             )
             check.configure(command=lambda box=check, box_var=var: box.configure(
                 fg=self._category_colour(box_var)))
+            add_tooltip(check, SETTING_TOOLTIPS["loaded_categories"])
             check.pack(fill="x", padx=6)
             self.category_vars[name] = var
             self.category_checks[name] = check

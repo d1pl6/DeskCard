@@ -53,7 +53,7 @@ class CardSide:
     """One side of an Anki card."""
 
     def __init__(self, text, sub="", audio=None, image=None,
-                 category="", direction="normal"):
+                 category="", direction="normal", show_sub="always"):
         """``audio``/``image`` are file paths; ``None`` means absent."""
         self.text = text
         self.sub = sub
@@ -61,6 +61,7 @@ class CardSide:
         self.image = image
         self.category = category
         self.direction = direction
+        self.show_sub = show_sub
 
 
 class AnkiCard:
@@ -265,6 +266,7 @@ class Application:
         self._warning_label = None
         self._footer = None
         self._face_wrap_labels = []
+        self._front_after_sub_label = None
         for child in self.root.winfo_children():
             child.destroy()
         self._build_header()
@@ -298,6 +300,11 @@ class Application:
                 self._show_button.pack_forget()
             else:
                 self._show_button.pack(pady=(12, 0))
+        if self._front_after_sub_label is not None:
+            if self.revealed:
+                self._front_after_sub_label.pack(anchor="center", pady=(4, 0))
+            else:
+                self._front_after_sub_label.pack_forget()
         if self._hint_label is not None:
             self._hint_label.configure(text=self._hint_text())
         self._sync_warning()
@@ -343,7 +350,7 @@ class Application:
     def _wraplength(self):
         return max(320, min(680, self._window_width - 120))
 
-    def _face_block(self, parent, side, wrap):
+    def _face_block(self, parent, side, wrap, is_front=False):
         """Render one side: text, sub, audio, and an optional image slot."""
         frame = tk.Frame(parent, bg=PANEL_BG)
         inner = tk.Frame(frame, bg=PANEL_BG)
@@ -368,12 +375,16 @@ class Application:
             flat_button(row, "▶", command=lambda s=side: self._play(s),
                         small=True).pack(side="left", padx=(12, 0), pady=(4, 0))
 
-        if side.sub:
+        show_sub = getattr(side, "show_sub", "always")
+        if side.sub and show_sub != "never":
             sub_label = tk.Label(inner, text=side.sub, bg=PANEL_BG,
                                  fg=THEME_FG_DIM, font=FONT_SUB,
                                  justify="center", wraplength=wrap)
-            sub_label.pack(anchor="center", pady=(4, 0))
             self._face_wrap_labels.append(sub_label)
+            if show_sub == "always" or (show_sub == "after" and not is_front):
+                sub_label.pack(anchor="center", pady=(4, 0))
+            else:
+                self._front_after_sub_label = sub_label
 
         if side.image:
             slot = image_frame(
@@ -390,7 +401,7 @@ class Application:
 
         wrap = self._wraplength()
 
-        front = self._face_block(body, self.card.front, wrap)
+        front = self._face_block(body, self.card.front, wrap, is_front=True)
         front.pack(fill="x", pady=(8, 6))
 
         # Built once and shown/hidden by _sync_state; no teardown on reveal.

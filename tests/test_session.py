@@ -8,7 +8,9 @@ from pathlib import Path
 
 from src.config.loader import load_config
 from src.errors import SettingsError
-from src.session import Presentation, Session, parse_score_filter, parse_time
+from src.session import (
+    Presentation, Session, normalize_settings, parse_score_filter, parse_time,
+)
 
 
 DECK = {
@@ -57,6 +59,7 @@ def settings(**overrides):
                     "answer_prompt": ["text_only"],
                     "other_direction": "normal",
                     "other_score": "0-100",
+                    "random_score": "0",
                 },
             },
         },
@@ -82,6 +85,16 @@ class SettingsTests(unittest.TestCase):
         for raw in ("", "55-*", "44-12", "abc", "200", "0-49,80-99"):
             with self.assertRaises(SettingsError):
                 parse_score_filter(raw, "x")
+
+    def test_random_score_default_and_bounds(self):
+        data = settings()
+        del data["exercises"]["anki"]["settings"]["random_score"]
+        parsed = normalize_settings(data)
+        self.assertEqual(parsed.exercises["anki"].random_score, 10)
+
+        data["exercises"]["anki"]["settings"]["random_score"] = "250"
+        with self.assertRaises(SettingsError):
+            normalize_settings(data)
 
     def test_repeat_blocks_max_attempts(self):
         data = settings()
@@ -189,6 +202,32 @@ class SessionTests(unittest.TestCase):
         cards = [event.card_ids[0] for event in session if hasattr(event, "spec")]
         self.assertEqual(cards, ["low", "mid", "high"])
 
+    def test_random_score_jitters_ordering(self):
+        deck = {
+            "example": {
+                "enabled": True,
+                "a": {"front": {"text": "A"}, "back": {"text": "a"}, "score": 10},
+                "b": {"front": {"text": "B"}, "back": {"text": "b"}, "score": 15},
+                "c": {"front": {"text": "C"}, "back": {"text": "c"}, "score": 20},
+            },
+        }
+        path = Path(tempfile.mkdtemp()) / "deck.json"
+        path.write_text(json.dumps(deck), encoding="utf-8")
+        for jitter, expected in (("0", ["a", "b", "c"]),
+                                 ("10", ["a", "c", "b"])):
+            with self.subTest(random_score=jitter):
+                data = settings()
+                data["exercises"]["anki"]["settings"]["random_score"] = jitter
+                session = Session(
+                    load_config(path), data,
+                    rng=random.Random(4), save_categories=False,
+                )
+                order = [
+                    event.spec.card_id for event in session
+                    if isinstance(event, Presentation)
+                ]
+                self.assertEqual(order, expected)
+
     def test_all_exercises_order_by_lowest_score(self):
         deck = {
             "example": {
@@ -276,6 +315,51 @@ class SessionTests(unittest.TestCase):
         self.assertTrue(event.spec.front.audio.endswith("hello.wav"))
         self.assertEqual(event.spec.back.text, "Hola")
         self.assertIsNone(event.spec.back.audio)
+
+    def test_combined_modes_render_only_requested_parts(self):
+        directory = Path(tempfile.mkdtemp())
+        audio = directory / "hello.wav"
+        image = directory / "hello.png"
+        audio.write_bytes(b"audio")
+        image.write_bytes(b"image")
+        deck = {
+            "example": {
+                "enabled": True,
+                "one": {
+                    "front": {
+                        "text": "Hello", "sub": "hi",
+                        "audio": audio.name, "image": image.name,
+                    },
+                    "back": {
+                        "text": "Hola", "sub": "hola",
+                        "audio": audio.name, "image": image.name,
+                    },
+                    "score": 50,
+                },
+            },
+        }
+        path = directory / "deck.json"
+        path.write_text(json.dumps(deck), encoding="utf-8")
+        expected = {
+            "text_audio": (True, True, False),
+            "text_image": (True, False, True),
+            "audio_image": (False, True, True),
+        }
+        for mode, (text, audio_part, image_part) in expected.items():
+            with self.subTest(mode=mode):
+                data = settings()
+                data["exercises"]["anki"]["settings"]["prompt_type"] = [mode]
+                data["exercises"]["anki"]["settings"]["answer_prompt"] = [mode]
+                session = Session(
+                    load_config(path), data,
+                    rng=random.Random(1), save_categories=False,
+                )
+                event = next(item for item in session if isinstance(item, Presentation))
+                for face in (event.spec.front, event.spec.back):
+                    self.assertEqual(bool(face.text), text)
+                    self.assertEqual(bool(face.sub), text)
+                    self.assertEqual(bool(face.audio), audio_part)
+                    self.assertEqual(bool(face.image), image_part)
 
 
 if __name__ == "__main__":

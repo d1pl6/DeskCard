@@ -147,18 +147,26 @@ class SessionRunner:
         if callable(auto_play):
             window.after_idle(auto_play)
 
-    @staticmethod
-    def _anki_card(presentation):
+    def _anki_card(self, presentation):
         spec = presentation.spec
+        settings = self._settings()
 
-        def side(face):
+        def side(face, sub_mode, front=False):
+            # The back is only built into the reveal area, so ``after`` is
+            # already satisfied when it becomes visible.
+            if not front and sub_mode == "after":
+                sub_mode = "always"
             return CardSide(
                 face.text or "", face.sub or "",
                 audio=face.audio, image=face.image,
                 category=spec.category, direction=spec.direction,
+                show_sub=sub_mode,
             )
 
-        return AnkiCard(side(spec.front), side(spec.back))
+        return AnkiCard(
+            side(spec.front, settings.prompt_sub, front=True),
+            side(spec.back, settings.answer_sub),
+        )
 
     @staticmethod
     def _choose_card(presentation):

@@ -233,6 +233,7 @@ class Application:
         self._window_width = 0
         self.prompt_listens = int(prompt_listens)
         self.prompt_plays = 0
+        self._prompt_plays = {}
 
         root.bind("<Return>", lambda _e: self._enter())
         root.bind("<KP_Enter>", lambda _e: self._enter())
@@ -262,6 +263,7 @@ class Application:
         self.reveal_correct = None
         self.correct_count = 0
         self.prompt_plays = 0
+        self._prompt_plays = {}
         self._left_widgets = {}
         self._right_widgets = {}
         n = len(self.card.pairs)
@@ -376,12 +378,17 @@ class Application:
         """Play the first prompt's audio once when the card opens."""
         pairs = self.card.pairs
         if pairs and pairs[0].prompt_audio:
-            self._play_prompt(pairs[0].prompt_audio)
+            self._play_prompt(pairs[0].prompt_audio, "p0")
 
-    def _play_prompt(self, path):
-        limit = 1 + self.prompt_listens
-        if self.prompt_plays >= limit:
+    def _play_prompt(self, path, key=None):
+        if not path:
             return
+        key = key or path
+        limit = 1 + self.prompt_listens
+        plays = self._prompt_plays.get(key, 0)
+        if plays >= limit:
+            return
+        self._prompt_plays[key] = plays + 1
         self.prompt_plays += 1
         self._play(path)
 
@@ -630,7 +637,9 @@ class Application:
                 self._pair_correct(row) if self.revealed else None,
                 lambda value=row: self._click_left(value), wrap,
                 audio=pair.prompt_audio,
-                on_play=lambda path=pair.prompt_audio: self._play_prompt(path),
+                on_play=lambda path=pair.prompt_audio, key=f"p{row}": (
+                    self._play_prompt(path, key)
+                ),
                 image=pair.prompt_image,
             )
             item.grid(row=row, column=0, sticky="nsew", padx=(0, 12), pady=6)

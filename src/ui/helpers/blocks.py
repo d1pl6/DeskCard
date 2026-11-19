@@ -13,8 +13,10 @@ import tkinter as tk
 
 try:
     from .theme import THEME_FONT_BOLD, THEME_FONT_SMALL
+    from .tooltips import add_tooltip, tooltip_for_block, tooltip_for_option
 except ImportError:  # started as a script, not as a package
     from theme import THEME_FONT_BOLD, THEME_FONT_SMALL
+    from tooltips import add_tooltip, tooltip_for_block, tooltip_for_option
 
 
 HINT_PADX = (10, 0)
@@ -110,6 +112,7 @@ class ChecksBlock(Block):
             var = tk.IntVar(value=1 if option_key == default else 0)
             widget = tk.Checkbutton(options, text=text, variable=var)
             widget.grid(row=0, column=column, sticky="w")
+            add_tooltip(widget, tooltip_for_option(self.key, option_key))
             self.vars[option_key] = var
             self.widgets[f"{self.key}_{option_key}"] = widget
             self.widgets[f"{self.key}_{option_key}_var"] = var
@@ -150,6 +153,7 @@ class RadiosBlock(Block):
         for column, (option_key, text) in enumerate(self.spec["options"]):
             widget = tk.Radiobutton(options, text=text, variable=self.var, value=option_key)
             widget.grid(row=0, column=column, sticky="w")
+            add_tooltip(widget, tooltip_for_option(self.key, option_key))
             self.widgets[f"{self.key}_{option_key}"] = widget
         self.widgets[f"{self.key}_var"] = self.var
 
@@ -274,7 +278,8 @@ class Section:
         tk.Label(self.frame, text=self.title, font=THEME_FONT_BOLD).pack(
             fill="x", pady=SECTION_PADY)
         for block in self.blocks:
-            block.build(self.frame)
+            frame = block.build(self.frame)
+            add_tooltip(frame, tooltip_for_block(block))
         return self.frame
 
     def pack(self, show_advanced):

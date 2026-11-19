@@ -70,6 +70,7 @@ _EXERCISE_DEFAULTS = {
     "highlight_word": False,
     "other_direction": "normal",
     "other_score": "0-99",
+    "random_score": "10",
     "other_close_time": "3s",
     "other_repeat": False,
     "other_attempts": "",
@@ -190,6 +191,7 @@ class ExerciseSettings:
     highlight_word: bool
     other_direction: str
     other_score: tuple[int, int]
+    random_score: int
     other_close_time: int
     other_repeat: bool
     other_attempts: int
@@ -272,6 +274,8 @@ def normalize_settings(data: dict[str, Any]) -> NormalizedSettings:
             other_direction=_parse_choice(values["other_direction"],
                                           f"{path}.other_direction", DIRECTIONS, "normal"),
             other_score=parse_score_filter(values["other_score"], f"{path}.other_score"),
+            random_score=int(_parse_int(values["random_score"], f"{path}.random_score",
+                                        empty=10, minimum=0, maximum=100) or 0),
             other_close_time=int(parse_time(values["other_close_time"],
                                             f"{path}.other_close_time", empty=0) or 0),
             other_repeat=_parse_bool(values["other_repeat"], f"{path}.other_repeat"),
@@ -480,9 +484,16 @@ class Session:
             ]
             # Shuffle first so equal scores do not silently follow file order,
             # then sort by score: weakest cards are shown first in every
-            # exercise, not just Anki.
+            # exercise, not just Anki. `random_score` adds 0..N to the score
+            # used for this ordering, giving close scores a chance to swap.
             self.rng.shuffle(candidates)
-            candidates.sort(key=lambda card: card.score)
+            if exercise.random_score:
+                candidates.sort(
+                    key=lambda card: card.score
+                    + self.rng.randint(0, exercise.random_score)
+                )
+            else:
+                candidates.sort(key=lambda card: card.score)
             draws: list[_Draw] = []
             answer_texts: set[str] = set()
             for card in candidates:

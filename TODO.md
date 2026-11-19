@@ -1,9 +1,8 @@
-- [ ] Loader
-    - Random score for the next card
-- [ ] Anki
-- [ ] Choose
-- [ ] Connect
-- [ ] Write
+- [x] Loader
+- [x] Anki
+- [x] Choose
+- [x] Connect
+- [x] Write
     - Answer matching
         1. Relaxed case, strict diacritics
             - Trim spaces + case-insensitive; typed diacritics must match the target (ř/ě/ů etc. still count as mistakes) — practices correct spelling without case noise.
@@ -11,14 +10,14 @@
             - Typed answer must match target exactly, including capitalization.
         3. Ignore diacritics
             - Also accepts missing diacritics (šest = sest accepted).
-- [ ] Tooltips
+- [x] Tooltips
 - [ ] Settings
     - Show "Skip" / "Quit"
-    - show "time passed: ", "cards in batch: "session batches: "
+    - Show "time passed: ", "cards in batch: "session batches: "
     - Score change
     - Default global settings
     - `**on**/off` increase "direction" counter in "normal" and "reverse" modes
-    - show next card in...
+    - Show next card in...
     - Theme change
 - [ ] Editor
 - [ ] TTS
