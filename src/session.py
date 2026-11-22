@@ -66,8 +66,6 @@ _EXERCISE_DEFAULTS = {
     "answer_choices": "5",
     "answer_connections": "5",
     "answer_time": "0",
-    "highlight_character": False,
-    "highlight_word": False,
     "other_direction": "normal",
     "other_score": "0-99",
     "random_score": "10",
@@ -187,8 +185,6 @@ class ExerciseSettings:
     answer_choices: int
     answer_connections: int
     answer_time: int | None  # None means no limit
-    highlight_character: bool
-    highlight_word: bool
     other_direction: str
     other_score: tuple[int, int]
     random_score: int
@@ -267,10 +263,6 @@ def normalize_settings(data: dict[str, Any]) -> NormalizedSettings:
                                               minimum=2, maximum=10) or 5),
             answer_time=parse_time(values["answer_time"], f"{path}.answer_time",
                                    empty=None) or None,
-            highlight_character=_parse_bool(values["highlight_character"],
-                                            f"{path}.highlight_character"),
-            highlight_word=_parse_bool(values["highlight_word"],
-                                       f"{path}.highlight_word"),
             other_direction=_parse_choice(values["other_direction"],
                                           f"{path}.other_direction", DIRECTIONS, "normal"),
             other_score=parse_score_filter(values["other_score"], f"{path}.other_score"),

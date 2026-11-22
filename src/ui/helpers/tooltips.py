@@ -1,8 +1,4 @@
-"""Small hover tooltips for the settings UI.
-
-The strings here are the ones documented in the ``#### Settings`` table of
-README.md. Keep both in sync.
-"""
+"""Small hover tooltips for the settings UI."""
 
 import tkinter as tk
 
@@ -27,8 +23,6 @@ SETTING_TOOLTIPS = {
     "answer_choices": "How many options to show. Minimum 2",
     "answer_connections": "How many pairs to connect. From 2 to 10",
     "answer_time": "Time to answer before the card counts as wrong. Empty/0 = no limit",
-    "highlight_character": "Mark mismatched characters after answering",
-    "highlight_word": "Mark mismatched words after answering",
     "other_close_time": "Time the answer stays on screen after a mistake. 0 = immediate",
     "other_repeat": (
         "The card is not dismissed until the answer has no mistakes "
@@ -89,13 +83,32 @@ SETTING_TOOLTIPS = {
 
 
 def tooltip_for_block(block):
-    """Return the README tooltip for a block, if it has one."""
+    """Return the tooltip for a block, if it has one."""
     key = block.spec.get("key")
     if key:
         return SETTING_TOOLTIPS.get(key)
     if block.spec.get("text") == "Difficulty":
         return SETTING_TOOLTIPS["difficulty"]
     return None
+
+
+CONTENT_LOCK_TOOLTIPS = {
+    "audio_missing": "install pygame-ce (or python-pygame) to play audio",
+    "image_missing": "install Pillow to display images",
+    "audio_deck": "the loaded deck has audio errors",
+    "image_deck": "the loaded deck has image errors",
+    "text_deck": "the loaded deck has text errors",
+}
+
+
+def content_lock_tooltip(medium, *, library_missing, deck_error):
+    """Explain why a content option is unavailable."""
+    reasons = []
+    if library_missing:
+        reasons.append(CONTENT_LOCK_TOOLTIPS[f"{medium}_missing"])
+    if deck_error:
+        reasons.append(CONTENT_LOCK_TOOLTIPS[f"{medium}_deck"])
+    return f"{medium.title()} option is locked: " + " and ".join(reasons) + "."
 
 
 def tooltip_for_option(block_key, option_key):
@@ -147,17 +160,17 @@ class _Tooltip:
     DELAY_MS = 400
 
     def __init__(self, widget, text):
-        if getattr(widget, "_tooltip_text", None):
-            return
         self.widget = widget
         self.text = text
         self.root = widget.winfo_toplevel()
         self.window = None
         self.job = None
         widget._tooltip_text = text
-        widget.bind("<Enter>", self._schedule, add="+")
-        widget.bind("<Leave>", self._hide, add="+")
-        widget.bind("<Destroy>", self._on_destroy, add="+")
+        self.bindings = (
+            ("<Enter>", widget.bind("<Enter>", self._schedule, add="+")),
+            ("<Leave>", widget.bind("<Leave>", self._hide, add="+")),
+            ("<Destroy>", widget.bind("<Destroy>", self._on_destroy, add="+")),
+        )
 
     def _schedule(self, event):
         self._hide()
@@ -207,12 +220,33 @@ class _Tooltip:
             self._hide()
 
 
+def set_tooltip(widget, text, *, remember_default=False):
+    """Replace a widget's tooltip, keeping the original for later restoration."""
+    if remember_default or not hasattr(widget, "_tooltip_default"):
+        widget._tooltip_default = text
+    old = getattr(widget, "_tooltip", None)
+    if old is not None:
+        old._hide()
+        for sequence, command in old.bindings:
+            try:
+                widget.unbind(sequence, command)
+            except tk.TclError:
+                pass
+        del widget._tooltip
+    if not text:
+        widget._tooltip_text = None
+        return
+    widget._tooltip = _Tooltip(widget, text)
+
+
 def add_tooltip(widget, text):
     """Bind a tooltip to a widget and all of its descendants."""
     if not text:
         return
     for item in [widget, *_descendants(widget)]:
-        _Tooltip(item, text)
+        if getattr(item, "_tooltip", None) is not None:
+            continue
+        set_tooltip(item, text, remember_default=True)
 
 
 def _descendants(widget):

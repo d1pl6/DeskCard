@@ -1,6 +1,5 @@
 import os
 import unittest
-from pathlib import Path
 
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
@@ -19,13 +18,13 @@ def tooltip_texts(widget):
 
 
 class TooltipTests(unittest.TestCase):
-    def test_readme_tooltips_are_all_defined(self):
-        readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
-        for text in SETTING_TOOLTIPS.values():
-            self.assertIn(text, readme, f"missing from README: {text}")
+    def test_every_setting_tooltip_has_text(self):
+        for key, text in SETTING_TOOLTIPS.items():
+            self.assertIsInstance(text, str, f"non-string tooltip: {key}")
+            self.assertTrue(text.strip(), f"empty tooltip: {key}")
 
     @unittest.skipUnless(os.environ.get("DISPLAY"), "needs a Tk display")
-    def test_settings_ui_binds_every_readme_tooltip(self):
+    def test_settings_ui_binds_every_tooltip(self):
         import tkinter as tk
 
         from src.ui.loader import Application

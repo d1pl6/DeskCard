@@ -347,6 +347,54 @@ class AppPreferencesTests(unittest.TestCase):
                 self.assertEqual(loaded["windows"], {})
 
 
+class ConfigDirectoryTests(unittest.TestCase):
+    def test_platform_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(root / "config")}):
+                self.assertEqual(
+                    app_preferences.config_directory("linux"),
+                    root / "config" / "DeskCard",
+                )
+            with patch.dict(os.environ, {"APPDATA": str(root / "roaming")}):
+                self.assertEqual(
+                    app_preferences.config_directory("win32"),
+                    root / "roaming" / "DeskCard",
+                )
+            with patch.object(Path, "home", return_value=root):
+                self.assertEqual(
+                    app_preferences.config_directory("darwin"),
+                    root / "Library" / "Application Support" / "DeskCard",
+                )
+            with patch.dict(os.environ, {"XDG_CONFIG_HOME": "relative"}):
+                with patch.object(Path, "home", return_value=root):
+                    self.assertEqual(
+                        app_preferences.config_directory("linux"),
+                        root / ".config" / "DeskCard",
+                    )
+
+    def test_legacy_preferences_are_copied_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            legacy = root / ".deskcard" / "preferences.json"
+            legacy.parent.mkdir()
+            legacy.write_text(json.dumps({"exercise_opacity": 42}), encoding="utf-8")
+            new = root / "xdg" / "DeskCard" / "preferences.json"
+
+            with patch.object(app_preferences, "LEGACY_PREFERENCES_PATH", legacy), \
+                    patch.object(app_preferences, "DEFAULT_PREFERENCES_PATH", new), \
+                    patch.object(app_preferences, "PREFERENCES_PATH", new):
+                prefs = app_preferences.load_preferences()
+                self.assertEqual(prefs["exercise_opacity"], 42)
+                self.assertEqual(
+                    json.loads(new.read_text(encoding="utf-8"))["exercise_opacity"], 42,
+                )
+
+                new.write_text(json.dumps({"exercise_opacity": 77}), encoding="utf-8")
+                prefs = app_preferences.load_preferences()
+                self.assertEqual(prefs["exercise_opacity"], 77)
+
+
 class NewPreferenceBehaviourTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("DISPLAY"), "needs a Tk display")
     def test_auto_load_last_deck_and_settings(self):

@@ -7,10 +7,32 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
-PREFERENCES_PATH = Path.home() / ".deskcard" / "preferences.json"
+APP_DIR_NAME = "DeskCard"
+LEGACY_PREFERENCES_PATH = Path.home() / ".deskcard" / "preferences.json"
+
+
+def config_directory(platform: str | None = None) -> Path:
+    """Return the platform's config directory for DeskCard."""
+    system = platform or sys.platform
+    if system == "win32":
+        appdata = os.environ.get("APPDATA")
+        if appdata and Path(appdata).is_absolute():
+            return Path(appdata) / APP_DIR_NAME
+        return Path.home() / "AppData" / "Roaming" / APP_DIR_NAME
+    if system == "darwin":
+        return Path.home() / "Library" / "Application Support" / APP_DIR_NAME
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg and Path(xdg).is_absolute():
+        return Path(xdg) / APP_DIR_NAME
+    return Path.home() / ".config" / APP_DIR_NAME
+
+
+DEFAULT_PREFERENCES_PATH = config_directory() / "preferences.json"
+PREFERENCES_PATH = DEFAULT_PREFERENCES_PATH
 
 GRADES = ("impossible", "hard", "medium", "light", "easy")
 STATUS_POSITIONS = ("top", "bottom")
@@ -59,8 +81,28 @@ def _copy_defaults() -> dict[str, Any]:
     return json.loads(json.dumps(DEFAULT_PREFERENCES))
 
 
+def debug_log_path() -> Path:
+    """Return the log file beside the active preferences file."""
+    return PREFERENCES_PATH.parent / "debug.log"
+
+
+def migrate_legacy_preferences() -> None:
+    """Copy an existing home-directory preferences file into the config dir."""
+    if PREFERENCES_PATH != DEFAULT_PREFERENCES_PATH:
+        return
+    if PREFERENCES_PATH.exists() or not LEGACY_PREFERENCES_PATH.is_file():
+        return
+    try:
+        PREFERENCES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PREFERENCES_PATH.write_bytes(LEGACY_PREFERENCES_PATH.read_bytes())
+    except OSError:
+        return
+
+
 def load_preferences(path: str | Path | None = None) -> dict[str, Any]:
     """Read preferences, falling back to defaults for missing or bad values."""
+    if path is None:
+        migrate_legacy_preferences()
     target = Path(path) if path is not None else PREFERENCES_PATH
     result = _copy_defaults()
     try:

@@ -10,7 +10,10 @@ import tkinter as tk
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
-import pygame
+try:
+    import pygame
+except ImportError:  # pragma: no cover - exercised only on minimal installs
+    pygame = None
 
 try:  # imported as src.ui.media
     from ..app_preferences import IMAGE_DISPLAY_MODES
@@ -29,6 +32,16 @@ _SOUND = None
 _IMAGE_CACHE = {}
 _IMAGE_MODE = "fit"
 _IMAGE_MAX = (0, 0)
+
+
+def audio_available():
+    """Whether the audio backend can be imported."""
+    return pygame is not None
+
+
+def image_available():
+    """Whether the image backend can be imported."""
+    return Image is not None and ImageTk is not None
 
 
 def configure_images(mode="fit", max_width=0, max_height=0):
@@ -68,6 +81,8 @@ def play_audio(path):
     global _AUDIO_INITIALIZED, _SOUND
     if not path:
         return False
+    if pygame is None:
+        raise RuntimeError("cannot play audio: pygame (pygame-ce) is not installed")
     try:
         if not _AUDIO_INITIALIZED:
             pygame.mixer.init()
@@ -82,14 +97,14 @@ def play_audio(path):
 
 def stop_audio():
     """Stop current playback; safe to call when nothing is playing."""
-    if _AUDIO_INITIALIZED:
+    if pygame is not None and _AUDIO_INITIALIZED:
         pygame.mixer.stop()
     global _SOUND
     _SOUND = None
 
 
 def audio_busy():
-    return _AUDIO_INITIALIZED and pygame.mixer.get_busy()
+    return pygame is not None and _AUDIO_INITIALIZED and pygame.mixer.get_busy()
 
 
 def load_image(path, max_size=(240, 150)):

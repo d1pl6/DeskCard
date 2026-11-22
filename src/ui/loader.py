@@ -14,8 +14,10 @@ try:
     )
     from ..debug_log import configure_debug_log, log_debug, log_error
     from .helpers.blocks import ExerciseTab, Section
-    from .helpers.tooltips import SETTING_TOOLTIPS, add_tooltip
-    from .media import configure_images
+    from .helpers.tooltips import (
+        SETTING_TOOLTIPS, add_tooltip, content_lock_tooltip, set_tooltip,
+    )
+    from .media import audio_available, configure_images, image_available
     from .preferences import show_preferences
     from .runner import SessionRunner
     from .helpers.theme import (
@@ -36,8 +38,10 @@ except ImportError:  # started as a script, not as a package
     )
     from debug_log import configure_debug_log, log_debug, log_error
     from helpers.blocks import ExerciseTab, Section
-    from helpers.tooltips import SETTING_TOOLTIPS, add_tooltip
-    from media import configure_images
+    from helpers.tooltips import (
+        SETTING_TOOLTIPS, add_tooltip, content_lock_tooltip, set_tooltip,
+    )
+    from media import audio_available, configure_images, image_available
     from preferences import show_preferences
     from runner import SessionRunner
     from helpers.theme import (
@@ -190,6 +194,32 @@ CONTENT_OPTIONS = [
     ("all", "All"),
 ]
 
+CONTENT_MEDIA = {
+    "text_only": ("text",),
+    "audio_only": ("audio",),
+    "image_only": ("image",),
+    "text_audio": ("text", "audio"),
+    "text_image": ("text", "image"),
+    "audio_image": ("audio", "image"),
+    "all": ("text", "audio", "image"),
+}
+
+
+def broken_media(warnings):
+    """Which media kinds the loaded deck reported errors for."""
+    broken = {"text": False, "audio": False, "image": False}
+    for warning in warnings:
+        text = str(warning).lower()
+        if "has neither text, audio nor image" in text:
+            for medium in broken:
+                broken[medium] = True
+        for medium in broken:
+            if f"/{medium}:" in text:
+                broken[medium] = True
+        if ": no text;" in text:
+            broken["text"] = True
+    return broken
+
 SUB_OPTIONS = [
     ("always", "Always"),
     ("after", "After answer"),
@@ -332,10 +362,6 @@ WRITE_SECTIONS = [
             {"key": "answer_sub", "label": "Show Sub", "kind": "radios",
              "advanced": True, "options": SUB_OPTIONS, "default": "after"},
             {"kind": "subheading", "text": "Difficulty"},
-            {"key": "highlight_character", "text": "Highlight wrong characters",
-             "kind": "check"},
-            {"key": "highlight_word", "text": "Highlight wrong words",
-             "kind": "check"},
             {"key": "answer_time", "label": "Answer time limit",
              "kind": "entry", "hint": "0 = unlimited", "advanced": True, "default": "0"},
         ],
@@ -478,6 +504,7 @@ class Application:
         self._build_exercise_tab("choose", "Choose", CHOOSE_SECTIONS)
         self._build_exercise_tab("connect", "Connect", CONNECT_SECTIONS)
         self._build_exercise_tab("write", "Write", WRITE_SECTIONS)
+        self._refresh_content_locks()
 
     # Right column
         self.right_column = tk.Frame(self.main_frame, width=ui(200))
@@ -723,6 +750,42 @@ class Application:
         """Re-pack a tab in order, hiding advanced sections and blocks."""
         self._tabs[name].show_advanced()
 
+    def _refresh_content_locks(self):
+        """Disable content options that cannot work with this deck or install."""
+        deck_errors = (broken_media(self.config.warnings) if self.config
+                       else {"text": False, "audio": False, "image": False})
+        missing = {
+            "text": False,
+            "audio": not audio_available(),
+            "image": not image_available(),
+        }
+        for tab in self._tabs.values():
+            for block in tab.blocks:
+                if block.key not in ("prompt_type", "answer_prompt"):
+                    continue
+                for option_key, _label in block.spec["options"]:
+                    widget = block.widgets.get(f"{block.key}_{option_key}")
+                    var = block.widgets.get(f"{block.key}_{option_key}_var")
+                    media = CONTENT_MEDIA[option_key]
+                    reasons = []
+                    for medium in media:
+                        if missing[medium] or deck_errors[medium]:
+                            reasons.append(content_lock_tooltip(
+                                medium,
+                                library_missing=missing[medium],
+                                deck_error=deck_errors[medium],
+                            ))
+                    locked = bool(reasons)
+                    if widget is not None:
+                        widget.configure(state="disabled" if locked else "normal")
+                        set_tooltip(
+                            widget,
+                            " ".join(reasons) if locked
+                            else getattr(widget, "_tooltip_default", None),
+                        )
+                    if locked and var is not None and var.get():
+                        var.set(0)
+
     def on_footer_reset(self):
         """Put every setting back to its default and unload the deck, after confirming."""
         if self.preferences.get("confirm_quit_reset", True):
@@ -836,6 +899,7 @@ class Application:
         self._set_entry(self.desk_entry, str(config.path))
         self._fill_categories(config)
         self.desk_status.configure(text=self._describe(config))
+        self._refresh_content_locks()
         self._set_start_enabled(True)
         self._remember_file("last_deck", config.path)
         if not quiet:
@@ -854,6 +918,7 @@ class Application:
         self._set_entry(self.desk_entry, "")
         self._fill_categories(None)
         self.desk_status.configure(text="No deck selected")
+        self._refresh_content_locks()
         self._set_start_enabled(False)
 
     def _fill_categories(self, config):

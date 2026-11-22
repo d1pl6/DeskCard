@@ -27,7 +27,7 @@ def configure_debug_log(enabled: bool) -> None:
         return
     if _HANDLER is not None:
         return
-    target = app_preferences.PREFERENCES_PATH.parent / "debug.log"
+    target = app_preferences.debug_log_path()
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         handler = logging.handlers.RotatingFileHandler(
