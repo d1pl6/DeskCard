@@ -12,10 +12,10 @@ main window can still expose them as ``<tab>_<suffix>`` attributes.
 import tkinter as tk
 
 try:
-    from .theme import THEME_FONT_BOLD, THEME_FONT_SMALL
+    from .theme import THEME_FONT_BOLD, THEME_FONT_SMALL, ui
     from .tooltips import add_tooltip, tooltip_for_block, tooltip_for_option
 except ImportError:  # started as a script, not as a package
-    from theme import THEME_FONT_BOLD, THEME_FONT_SMALL
+    from theme import THEME_FONT_BOLD, THEME_FONT_SMALL, ui
     from tooltips import add_tooltip, tooltip_for_block, tooltip_for_option
 
 
@@ -106,7 +106,7 @@ class ChecksBlock(Block):
         tk.Label(frame, text=self.spec["label"]).grid(
             row=0, column=0, columnspan=2, sticky="w")
         options = tk.Frame(frame)
-        options.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        options.grid(row=1, column=0, columnspan=2, sticky="w", pady=ui((2, 0)))
         default = self.spec.get("default")
         for column, (option_key, text) in enumerate(self.spec["options"]):
             var = tk.IntVar(value=1 if option_key == default else 0)
@@ -148,7 +148,7 @@ class RadiosBlock(Block):
         tk.Label(frame, text=self.spec["label"]).grid(
             row=0, column=0, columnspan=2, sticky="w")
         options = tk.Frame(frame)
-        options.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        options.grid(row=1, column=0, columnspan=2, sticky="w", pady=ui((2, 0)))
         self.var = tk.StringVar(value=self.spec.get("default", ""))
         for column, (option_key, text) in enumerate(self.spec["options"]):
             widget = tk.Radiobutton(options, text=text, variable=self.var, value=option_key)

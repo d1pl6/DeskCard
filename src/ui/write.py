@@ -15,7 +15,7 @@ try:  # imported as ui.write
         THEME_ACCENT, THEME_ACCENT_FG, THEME_ACCENT_HOVER, THEME_BG,
         THEME_DANGER, THEME_DANGER_HOVER, THEME_FG, THEME_FG_DIM,
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
-        apply_theme,
+        apply_theme, ui,
     )
     from .media import image_frame, play_audio, stop_audio
 except ImportError:  # started as a script: python src/ui/write.py
@@ -23,7 +23,7 @@ except ImportError:  # started as a script: python src/ui/write.py
         THEME_ACCENT, THEME_ACCENT_FG, THEME_ACCENT_HOVER, THEME_BG,
         THEME_DANGER, THEME_DANGER_HOVER, THEME_FG, THEME_FG_DIM,
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
-        apply_theme,
+        apply_theme, ui,
     )
     from media import image_frame, play_audio, stop_audio
 
@@ -90,7 +90,7 @@ def flat_button(parent, text, command=None, kind="dark", small=False, **kw):
         highlightthickness=0, bg=bg, fg=fg, activebackground=hover,
         activeforeground=fg, cursor="hand2", takefocus=0,
         font=THEME_FONT_SMALL if small else FONT,
-        padx=8 if small else 16, pady=2 if small else 8,
+        padx=ui(8) if small else 16, pady=ui(2) if small else 8,
     )
     options.update(kw)
     return tk.Button(parent, **options)
@@ -313,13 +313,13 @@ class Application:
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
         width = min(
-            WINDOW_SIZE[0], max(WINDOW_MIN[0], screen_w - WINDOW_MARGIN[0]))
+            ui(WINDOW_SIZE[0]), max(ui(WINDOW_MIN[0]), screen_w - ui(WINDOW_MARGIN[0])))
         height = min(
-            WINDOW_SIZE[1], max(WINDOW_MIN[1], screen_h - WINDOW_MARGIN[1]))
+            ui(WINDOW_SIZE[1]), max(ui(WINDOW_MIN[1]), screen_h - ui(WINDOW_MARGIN[1])))
         x = max(0, (screen_w - width) // 2)
         y = max(0, (screen_h - height) // 2)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
-        self.root.minsize(min(WINDOW_MIN[0], width), min(WINDOW_MIN[1], height))
+        self.root.minsize(min(ui(WINDOW_MIN[0]), width), min(ui(WINDOW_MIN[1]), height))
         self._window_width = width
 
     def _build(self):
@@ -369,10 +369,10 @@ class Application:
             if self.revealed:
                 self._entry_panel.pack_forget()
             else:
-                self._entry_panel.pack(fill="both", expand=True, padx=6, pady=6)
+                self._entry_panel.pack(fill="both", expand=True, padx=ui(6), pady=ui(6))
         if self._result_panel is not None:
             if self.revealed:
-                self._result_panel.pack(fill="both", expand=True, padx=6, pady=6)
+                self._result_panel.pack(fill="both", expand=True, padx=ui(6), pady=ui(6))
             else:
                 self._result_panel.pack_forget()
         if self._hint_label is not None:
@@ -405,13 +405,14 @@ class Application:
                 self._footer, text=text, bg=THEME_BG, fg="#d9c04f",
                 font=FONT_META, justify="left", wraplength=wrap,
             )
-            self._warning_label.pack(side="bottom", anchor="w", pady=(2, 0))
+            self._warning_label.pack(side="bottom", anchor="w", pady=ui((2, 0)))
         else:
             self._warning_label.configure(text=text, wraplength=wrap)
 
     def _build_header(self):
         header = tk.Frame(self.root, bg=THEME_BG)
-        header.pack(fill="x", padx=28, pady=(14, 4))
+        self._header = header
+        header.pack(fill="x", padx=ui(28), pady=ui((14, 4)))
         title = tk.Frame(header, bg=THEME_BG)
         title.pack(side="left")
         tk.Label(title, text="◆ DeskCard", bg=THEME_BG, fg=THEME_ACCENT,
@@ -422,14 +423,14 @@ class Application:
         actions.pack(side="right")
         self._skip_button = flat_button(
             actions, "Skip", command=self.on_skip, kind="ghost")
-        self._skip_button.pack(side="left", padx=(0, 6))
+        self._skip_button.pack(side="left", padx=ui((0, 6)))
         self._quit_button = flat_button(
             actions, "Quit", command=self.on_quit, kind="danger")
         self._quit_button.pack(side="left")
 
     def _build_footer(self):
         self._footer = tk.Frame(self.root, bg=THEME_BG)
-        self._footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
+        self._footer.pack(fill="x", side="bottom", padx=ui(28), pady=ui((4, 16)))
         self._hint_label = tk.Label(
             self._footer, text="", bg=THEME_BG, fg=THEME_FG_DIM,
             font=FONT_HINT,
@@ -442,11 +443,11 @@ class Application:
     # -- body --------------------------------------------------------------
     def _build_body(self):
         body = tk.Frame(self.root, bg=THEME_BG)
-        body.pack(fill="both", expand=True, padx=28, pady=(6, 0))
+        body.pack(fill="both", expand=True, padx=ui(28), pady=ui((6, 0)))
         self._prompt_card(body).pack(fill="x")
 
         stage = tk.Frame(body, bg=THEME_BG)
-        stage.pack(fill="both", expand=True, pady=(14, 0))
+        stage.pack(fill="both", expand=True, pady=ui((14, 0)))
         # Both stages are built once; _sync_state only toggles which is shown.
         self._entry_panel = tk.Frame(stage, bg=THEME_BG)
         self._build_entry(self._entry_panel)
@@ -457,7 +458,7 @@ class Application:
         data = self.card
         panel = tk.Frame(parent, bg=PANEL_BG)
         inner = tk.Frame(panel, bg=PANEL_BG)
-        inner.pack(fill="x", padx=28, pady=18)
+        inner.pack(fill="x", padx=ui(28), pady=ui(18))
         wrap = max(400, min(900, self._window_width - 220))
         meta = "   ·   ".join(
             part for part in (data.category.upper(), data.direction.upper())
@@ -478,27 +479,27 @@ class Application:
         if data.prompt_audio:
             self._prompt_audio_button = flat_button(
                 row, "▶", command=self._play_prompt, small=True)
-            self._prompt_audio_button.pack(side="left", padx=(12, 0), pady=(8, 0))
+            self._prompt_audio_button.pack(side="left", padx=ui((12, 0)), pady=ui((8, 0)))
         if data.prompt_sub:
             sub_label = tk.Label(inner, text=data.prompt_sub, bg=PANEL_BG,
                                  fg=THEME_FG_DIM, font=FONT_HINT,
                                  justify="left", wraplength=wrap)
-            sub_label.pack(anchor="w", pady=(2, 0))
+            sub_label.pack(anchor="w", pady=ui((2, 0)))
             self._prompt_wrap_labels.append(sub_label)
         if data.prompt_image:
             image_frame(
                 inner, data.prompt_image, width=220, height=136,
                 max_size=(212, 128), bg=PANEL_BG, font=FONT_META,
-            ).pack(anchor="w", pady=(8, 0))
+            ).pack(anchor="w", pady=ui((8, 0)))
         return panel
 
     def _build_entry(self, parent):
         card = tk.Frame(parent, bg=COVER_BG)
         card.pack(fill="both", expand=True)
         inner = tk.Frame(card, bg=PANEL_BG)
-        inner.pack(fill="both", expand=True, padx=6, pady=6)
+        inner.pack(fill="both", expand=True, padx=ui(6), pady=ui(6))
         box = tk.Frame(inner, bg=PANEL_BG)
-        box.pack(anchor="center", pady=(40, 0))
+        box.pack(anchor="center", pady=ui((40, 0)))
 
         tk.Label(box, text="YOUR ANSWER", bg=PANEL_BG, fg=THEME_FG_DIM,
                  font=FONT_META).pack(anchor="w")
@@ -507,7 +508,7 @@ class Application:
             insertbackground=THEME_FG, relief="flat", highlightthickness=1,
             highlightbackground="#4a4a4a", highlightcolor=THEME_ACCENT,
         )
-        entry.pack(pady=(6, 0), ipady=8)
+        entry.pack(pady=ui((6, 0)), ipady=ui(8))
         entry.insert(0, self.typed)
         entry.configure(state="disabled" if self.locked else "normal")
         self._entry = entry
@@ -527,12 +528,12 @@ class Application:
         overlay = tk.Frame(parent, bg=COVER_BG)
         overlay.pack(fill="both", expand=True)
         sheet = tk.Frame(overlay, bg=PANEL_BG)
-        sheet.pack(anchor="center", padx=6, pady=6)
+        sheet.pack(anchor="center", padx=ui(6), pady=ui(6))
         inner = tk.Frame(sheet, bg=PANEL_BG)
-        inner.pack(padx=60, pady=26)
+        inner.pack(padx=ui(60), pady=ui(26))
 
         self._chip_label = tk.Label(
-            inner, text="", font=FONT_CHIP, padx=12, pady=4)
+            inner, text="", font=FONT_CHIP, padx=ui(12), pady=ui(4))
         self._chip_label.pack(anchor="center")
         self._caption_label = tk.Label(
             inner, text="CORRECT ANSWER", bg=PANEL_BG,
@@ -540,29 +541,29 @@ class Application:
 
         self._answer_block = tk.Frame(inner, bg=PANEL_BG)
         answer_row = tk.Frame(self._answer_block, bg=PANEL_BG)
-        answer_row.pack(anchor="center", pady=(6, 0))
+        answer_row.pack(anchor="center", pady=ui((6, 0)))
         self._answer_label = tk.Label(
             answer_row, text=self.card.answer, bg=PANEL_BG, font=FONT_ANSWER)
         self._answer_label.pack(side="left", anchor="n")
         if self.card.answer_audio:
             self._answer_audio_button = flat_button(
                 answer_row, "▶", command=self._play_answer, small=True)
-            self._answer_audio_button.pack(side="left", padx=(12, 0), pady=(4, 0))
+            self._answer_audio_button.pack(side="left", padx=ui((12, 0)), pady=ui((4, 0)))
         if self.card.answer_sub:
             self._answer_sub_label = tk.Label(
                 self._answer_block, text=self.card.answer_sub, bg=PANEL_BG,
                 fg=THEME_FG_DIM, font=FONT_HINT)
-            self._answer_sub_label.pack(anchor="center", pady=(2, 0))
+            self._answer_sub_label.pack(anchor="center", pady=ui((2, 0)))
         if self.card.answer_image:
             image_frame(
                 self._answer_block, self.card.answer_image, width=260, height=160,
                 max_size=(252, 152), bg=PANEL_BG, font=FONT_META,
-            ).pack(anchor="center", pady=(8, 0))
+            ).pack(anchor="center", pady=ui((8, 0)))
 
         self._typed_label = tk.Label(
             inner, text="", bg=PANEL_BG, fg=THEME_FG_DIM, font=FONT_HINT,
             justify="center")
-        self._typed_label.pack(anchor="center", pady=(10, 0))
+        self._typed_label.pack(anchor="center", pady=ui((10, 0)))
 
     def _sync_result(self):
         if self._chip_label is None:
@@ -592,7 +593,7 @@ class Application:
             if correct:
                 self._caption_label.pack_forget()
             else:
-                self._caption_label.pack(anchor="center", pady=(10, 0))
+                self._caption_label.pack(anchor="center", pady=ui((10, 0)))
             self._answer_block.pack(anchor="center")
 
 

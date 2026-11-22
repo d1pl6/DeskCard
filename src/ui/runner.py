@@ -5,29 +5,44 @@ the engine's ``Delay`` and ``Presentation`` events, feeds each exercise screen
 with real card data, records results, and quits when the session ends.
 """
 
+import time
 import tkinter as tk
 from tkinter import messagebox
 
 try:  # imported as ui.runner
+    from ..app_preferences import (
+        apply_window_preferences, load_preferences, remember_window_preferences,
+        save_preferences,
+    )
     from .anki import AnkiCard, Application as AnkiApplication, CardSide
     from .choose import Application as ChooseApplication, ChooseCard
     from .connect import Application as ConnectApplication, ConnectCard, ConnectPair
     from .write import Application as WriteApplication, WriteCard
     from ..errors import ConfigError
     from ..session import Delay, Presentation
-    from .media import stop_audio
+    from .helpers.theme import (
+        THEME_BG, THEME_FIELD_BG, THEME_FG, THEME_FG_DIM, THEME_FONT_SMALL, ui,
+    )
+    from .media import configure_images, stop_audio
 except ImportError:  # started as a script from src/ui
     import sys
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from app_preferences import (
+        apply_window_preferences, load_preferences, remember_window_preferences,
+        save_preferences,
+    )
     from anki import AnkiCard, Application as AnkiApplication, CardSide
     from choose import Application as ChooseApplication, ChooseCard
     from connect import Application as ConnectApplication, ConnectCard, ConnectPair
     from write import Application as WriteApplication, WriteCard
     from src.errors import ConfigError
     from src.session import Delay, Presentation
-    from media import stop_audio
+    from helpers.theme import (
+        THEME_BG, THEME_FIELD_BG, THEME_FG, THEME_FG_DIM, THEME_FONT_SMALL, ui,
+    )
+    from media import configure_images, stop_audio
 
 
 # How long an intermediate wrong answer stays on screen before a retry.
@@ -37,9 +52,17 @@ RETRY_FEEDBACK_SECONDS = 0.7
 class SessionRunner:
     """Show all four exercise screens and handle delays, retries and results."""
 
-    def __init__(self, owner, session):
+    def __init__(self, owner, session, preferences=None):
         self.owner = owner
         self.session = session
+        self.preferences = preferences if preferences is not None else load_preferences()
+        self.restrict_close = bool(
+            self.preferences.get("restrict_exercise_close", False))
+        configure_images(
+            self.preferences.get("image_display_mode", "fit"),
+            self.preferences.get("max_image_width", 0),
+            self.preferences.get("max_image_height", 0),
+        )
 
         self.events = list(session)
         # Warnings are added while the generator runs, so read them afterwards.
@@ -55,6 +78,14 @@ class SessionRunner:
         self._timer = None
         self._timer_widget = None
         self._ended = False
+        self.started_at = None
+        self.cards_shown = 0
+        self.cards_in_batch = 0
+        self.session_batch = 0
+        self.session_batches_total = None
+        self._status_frame = None
+        self._status_labels = {}
+        self._status_job = None
 
     @property
     def has_work(self):
@@ -82,17 +113,27 @@ class SessionRunner:
 
     def _show(self, presentation):
         self.current = presentation
+        # The status time measures the current card, not the whole session.
+        self.started_at = time.monotonic()
         exercise = presentation.exercise
+        global_ = self.session.settings.global_
+        batch_size = max(1, global_.batch_size)
+        self.cards_in_batch = self.cards_shown % batch_size + 1
+        self.session_batch = self.cards_shown // batch_size + 1
+        self.session_batches_total = global_.batches
+        self.cards_shown += len(presentation.card_ids)
         title = f"DeskCard - {exercise.title()}"
         listens = self.session.settings.exercises[exercise].prompt_listens
+        quit_callback = self._blocked_quit if self.restrict_close else self.request_quit
         if exercise == "anki":
             self._open(title, lambda window: AnkiApplication(
                 window,
                 card=self._anki_card(presentation),
                 warnings=presentation.warnings,
                 on_grade=self._on_grade,
+                score_deltas=self.preferences.get("score_deltas"),
                 on_skip=self._close_and_advance,
-                on_quit=self.quit,
+                on_quit=quit_callback,
             ))
         elif exercise == "choose":
             self._open(title, lambda window: ChooseApplication(
@@ -102,7 +143,7 @@ class SessionRunner:
                 prompt_listens=listens,
                 on_result=self._on_result,
                 on_skip=self._close_and_advance,
-                on_quit=self.quit,
+                on_quit=quit_callback,
             ))
         elif exercise == "connect":
             self._open(title, lambda window: ConnectApplication(
@@ -112,7 +153,7 @@ class SessionRunner:
                 prompt_listens=listens,
                 on_result=self._on_result,
                 on_skip=self._close_and_advance,
-                on_quit=self.quit,
+                on_quit=quit_callback,
             ))
         elif exercise == "write":
             self._open(title, lambda window: WriteApplication(
@@ -122,7 +163,7 @@ class SessionRunner:
                 prompt_listens=listens,
                 on_result=self._on_result,
                 on_skip=self._close_and_advance,
-                on_quit=self.quit,
+                on_quit=quit_callback,
             ))
         else:
             self._close_and_advance()
@@ -135,6 +176,9 @@ class SessionRunner:
         self.window = window
         try:
             self.app = factory(window)
+            self._build_status()
+            self._apply_app_preferences()
+            apply_window_preferences(window, self.preferences, "exercise")
         except Exception:
             self.window = None
             window.destroy()
@@ -346,23 +390,132 @@ class SessionRunner:
         window.title(title)
         # Not transient: the owner is withdrawn while the session runs, and a
         # transient child of a withdrawn window never becomes viewable.
-        window.attributes("-topmost", True)
+        window.attributes(
+            "-topmost", bool(self.preferences.get("exercise_always_on_top", True)))
         window.protocol("WM_DELETE_WINDOW", self._on_window_close)
+        self._apply_opacity(window)
         return window
 
     def _on_window_close(self):
+        # The window manager sends this for the X button and for closing
+        # keybinds; restricted sessions must stay open until the deck is done.
+        if self.restrict_close:
+            return
         # Once locked, the in-app Skip/Quit controls are inert; the X button
         # must not end the whole session while the close delay runs.
         if self.app is not None and getattr(self.app, "locked", False):
             return
-        self.quit()
+        self.request_quit()
 
-    @staticmethod
-    def _focus(window):
+    def _clear_status(self):
+        if self._status_job is not None:
+            widget = self.window
+            try:
+                if widget is not None:
+                    widget.after_cancel(self._status_job)
+            except tk.TclError:
+                pass
+            self._status_job = None
+        self._status_frame = None
+        self._status_labels = {}
+
+    def _build_status(self):
+        self._clear_status()
+        keys = [
+            ("time_passed", "show_time_passed"),
+            ("cards_in_batch", "show_cards_in_batch"),
+            ("session_batches", "show_session_batches"),
+        ]
+        enabled = [key for key, pref in keys if self.preferences.get(pref)]
+        if not enabled or self.window is None:
+            return
+
+        frame = tk.Frame(self.window, bg=THEME_BG)
+        position = self.preferences.get("status_position", "top")
+        anchor = getattr(self.app, "_header" if position == "top" else "_footer", None)
+        options = dict(fill="x")
+        if anchor is not None:
+            options["before"] = anchor
+        frame.pack(side="top" if position == "top" else "bottom", **options)
+
+        self._status_frame = frame
+        self._status_labels = {}
+        for key in enabled:
+            label = tk.Label(
+                frame, text="", bg=THEME_BG, fg=THEME_FG,
+                font=THEME_FONT_SMALL, anchor="w",
+            )
+            label.pack(side="left", padx=ui((12, 4)), pady=ui(2))
+            self._status_labels[key] = label
+        self._update_status()
+
+    def _update_status(self):
+        if not self._status_labels or self.window is None:
+            return
+        elapsed = 0
+        if self.started_at is not None:
+            elapsed = max(0, int(time.monotonic() - self.started_at))
+        values = {
+            "time_passed": f"time passed: {elapsed // 60:02d}:{elapsed % 60:02d}",
+            "cards_in_batch": (
+                f"cards in batch: {self.cards_in_batch}/{self.session.settings.global_.batch_size}"
+            ),
+            "session_batches": (
+                f"session batches: {self.session_batch}/"
+                f"{self.session_batches_total if self.session_batches_total else '∞'}"
+            ),
+        }
+        for key, label in self._status_labels.items():
+            label.configure(text=values[key])
+        try:
+            self._status_job = self.window.after(1000, self._update_status)
+        except tk.TclError:
+            self._status_job = None
+
+    def _apply_app_preferences(self):
+        quit_button = getattr(self.app, "_quit_button", None)
+        if self.restrict_close and quit_button is not None:
+            try:
+                quit_button.configure(
+                    state="disabled", bg=THEME_FIELD_BG, fg=THEME_FG_DIM,
+                    disabledforeground=THEME_FG_DIM,
+                    activebackground=THEME_FIELD_BG,
+                    activeforeground=THEME_FG_DIM, cursor="arrow",
+                )
+            except tk.TclError:
+                pass
+        if self.preferences.get("show_skip_quit", True):
+            return
+        for attribute in ("_skip_button", "_quit_button"):
+            button = getattr(self.app, attribute, None)
+            if button is not None:
+                try:
+                    button.pack_forget()
+                except tk.TclError:
+                    pass
+
+    def _apply_opacity(self, window):
+        opacity = self.preferences.get("exercise_opacity", 100)
+        value = max(0.1, min(1.0, opacity / 100))
+        try:
+            if window.winfo_exists():
+                window.attributes("-alpha", value)
+                # Some WMs only honour alpha once the window is fully mapped.
+                window.after_idle(
+                    lambda: window.winfo_exists()
+                    and window.attributes("-alpha", value)
+                )
+        except tk.TclError:
+            pass
+
+    def _focus(self, window):
         window.update_idletasks()
         window.deiconify()
         window.lift()
         window.focus_force()
+        # Alpha must be set after the window is mapped; a child of the
+        # withdrawn owner silently ignores it before that point.
+        self._apply_opacity(window)
 
     def _schedule(self, seconds, callback):
         # A later schedule supersedes any pending callback; never leave an
@@ -385,11 +538,14 @@ class SessionRunner:
 
     def _destroy_window(self):
         stop_audio()
+        self._clear_status()
         window = self.window
         self.window = None
         self.app = None
         self.current = None
         if window is not None:
+            remember_window_preferences(window, self.preferences, "exercise")
+            save_preferences(self.preferences)
             try:
                 window.destroy()
             except tk.TclError:
@@ -397,6 +553,23 @@ class SessionRunner:
 
     # -- end ----------------------------------------------------------------
     def _end(self):
+        self.quit()
+
+    def _blocked_quit(self):
+        """Keep exercise windows open while closing is restricted."""
+
+    def request_quit(self):
+        """User-initiated quit, which may ask for confirmation."""
+        if self._ended:
+            return
+        if self.preferences.get("confirm_quit_reset", True):
+            parent = self.window if self.window is not None else self.owner
+            confirmed = messagebox.askyesno(
+                "Quit session", "Quit the current study session?",
+                parent=parent, icon="question", default="no",
+            )
+            if not confirmed:
+                return
         self.quit()
 
     def quit(self):

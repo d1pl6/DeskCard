@@ -8,13 +8,20 @@ from tkinter import messagebox
 
 try:
     from .about import APP_NAME, show_about
+    from ..app_preferences import (
+        apply_window_preferences, clear_remembered_files, load_preferences,
+        remember_recent_deck, remember_window_preferences, save_preferences,
+    )
+    from ..debug_log import configure_debug_log, log_debug, log_error
     from .helpers.blocks import ExerciseTab, Section
     from .helpers.tooltips import SETTING_TOOLTIPS, add_tooltip
+    from .media import configure_images
+    from .preferences import show_preferences
     from .runner import SessionRunner
     from .helpers.theme import (
         THEME_ACCENT, THEME_DANGER, THEME_DANGER_HOVER, THEME_FIELD_BG,
         THEME_FG, THEME_FG_DIM, THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL,
-        THEME_FONT_TITLE, apply_theme,
+        THEME_FONT_TITLE, apply_font_scale, apply_theme, ui,
     )
     from ..config.loader import load_config
     from ..errors import ConfigError
@@ -23,13 +30,20 @@ except ImportError:  # started as a script, not as a package
     import sys
 
     from about import APP_NAME, show_about
+    from app_preferences import (
+        apply_window_preferences, clear_remembered_files, load_preferences,
+        remember_recent_deck, remember_window_preferences, save_preferences,
+    )
+    from debug_log import configure_debug_log, log_debug, log_error
     from helpers.blocks import ExerciseTab, Section
     from helpers.tooltips import SETTING_TOOLTIPS, add_tooltip
+    from media import configure_images
+    from preferences import show_preferences
     from runner import SessionRunner
     from helpers.theme import (
         THEME_ACCENT, THEME_DANGER, THEME_DANGER_HOVER, THEME_FIELD_BG,
         THEME_FG, THEME_FG_DIM, THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL,
-        THEME_FONT_TITLE, apply_theme,
+        THEME_FONT_TITLE, apply_font_scale, apply_theme, ui,
     )
 
     # Make the project root importable so the shared config package is found.
@@ -41,7 +55,11 @@ except ImportError:  # started as a script, not as a package
 
 def _scroll_wheel(event):
     """Scroll the ScrollableFrame under the pointer, wherever the pointer is."""
-    widget = event.widget.winfo_containing(event.x_root, event.y_root)
+    # Native dialogs (and some Tk bindings) deliver a widget path string.
+    if not isinstance(event.widget, tk.Misc):
+        return
+    widget = event.widget.winfo_containing(
+        getattr(event, "x_root", 0), getattr(event, "y_root", 0))
     while widget is not None and not isinstance(widget, ScrollableFrame):
         widget = widget.master
     if widget is None:
@@ -346,9 +364,17 @@ WRITE_SECTIONS = [
 class Application:
     def __init__(self, root):
         self.root = root
-        root.title(f"{APP_NAME}")
+        self.preferences = load_preferences()
+        configure_debug_log(self.preferences.get("enable_debug_log", False))
+        log_debug("DeskCard started")
+        apply_font_scale(root, self.preferences["font_scale"])
+        self._apply_image_preferences()
+        # The trailing dot keeps the main window floating under Hyprland's
+        # title-based window rules.
+        root.title(f"{APP_NAME}.")
         self._fit_window()
         apply_theme(root)
+        apply_window_preferences(root, self.preferences, "main")
 
         self._tabs = {}
         self.config = None
@@ -363,31 +389,30 @@ class Application:
         self.header.rowconfigure(1, weight=1)
         self.header.columnconfigure(0, weight=1)
         self.header.columnconfigure(1, weight=3)
-        self.header.columnconfigure(2, weight=3)
 
-        self.header_name = tk.Label(self.header, text=APP_NAME, pady=10, padx=10, font=THEME_FONT_TITLE)
+        self.header_name = tk.Label(self.header, text=APP_NAME, pady=ui(10), padx=ui(10), font=THEME_FONT_TITLE)
         self.header_name.grid(column=0, row=0, sticky="w")
 
-        self.header_instructions = tk.Frame(self.header, pady=10, padx=10)
+        self.header_instructions = tk.Frame(self.header, pady=ui(10), padx=ui(10))
         self.header_instructions.grid(column=1, row=0, sticky="ns")
 
         self.header_instructions1 = tk.Label(self.header_instructions, text="1. Load deck")
-        self.header_instructions1.grid(column=0, row=0, sticky="w", padx=10)
+        self.header_instructions1.grid(column=0, row=0, sticky="w", padx=ui(10))
 
         self.header_instructions2 = tk.Label(self.header_instructions, text="2. Configure Exercises")
-        self.header_instructions2.grid(column=0, row=1, sticky="w", padx=10)
+        self.header_instructions2.grid(column=0, row=1, sticky="w", padx=ui(10))
 
         self.header_instructions3 = tk.Label(self.header_instructions, text="3. Configure Global Settings")
-        self.header_instructions3.grid(column=1, row=0, sticky="w", padx=10)
+        self.header_instructions3.grid(column=1, row=0, sticky="w", padx=ui(10))
 
         self.header_instructions4 = tk.Label(self.header_instructions, text="4. Start")
-        self.header_instructions4.grid(column=1, row=1, sticky="w", padx=10)
+        self.header_instructions4.grid(column=1, row=1, sticky="w", padx=ui(10))
 
-        self.header_buttons = tk.Frame(self.header, pady=10, padx=10)
-        self.header_buttons.grid(column=2, row=0, sticky="e")
+        self.header_buttons = tk.Frame(self.header, pady=ui(10), padx=ui(10))
+        self.header_buttons.grid(column=2, row=0, columnspan=2, sticky="e")
 
         self.header_settings = tk.Button(self.header_buttons, text="Settings", command=self.on_header_settings)
-        self.header_settings.grid(column=0, row=0, padx=10)
+        self.header_settings.grid(column=0, row=0, padx=ui(10))
         add_tooltip(self.header_settings, SETTING_TOOLTIPS["settings"])
 
         self.header_about = tk.Button(self.header_buttons, text="About", command=self.on_header_about)
@@ -404,11 +429,11 @@ class Application:
         self.desk_label.grid(column=0, row=0, sticky="w")
 
         self.desk_middle = tk.Frame(self.desk)
-        self.desk_middle.grid(column=0, row=1, sticky="ew", pady=10)
+        self.desk_middle.grid(column=0, row=1, sticky="ew", pady=ui(10))
         self.desk_middle.columnconfigure(0, weight=1)
 
         self.desk_entry = tk.Entry(self.desk_middle, borderwidth=1, relief=tk.SOLID)
-        self.desk_entry.grid(column=0, row=0, sticky="ew", padx=(0, 10))
+        self.desk_entry.grid(column=0, row=0, sticky="ew", padx=ui((0, 10)))
         self.desk_entry.bind("<Return>", self.on_desk_entry_submit)
         self.desk_entry.bind("<KP_Enter>", self.on_desk_entry_submit)
         add_tooltip(self.desk_entry, SETTING_TOOLTIPS["deck_entry"])
@@ -429,12 +454,20 @@ class Application:
         self.desk_status.grid(column=1, row=0, sticky="e")
         add_tooltip(self.desk_status, SETTING_TOOLTIPS["deck_status"])
 
+        self.recent_frame = tk.Frame(self.desk)
+        self.recent_frame.grid(column=0, row=3, sticky="ew", pady=ui((6, 0)))
+        self.recent_frame.columnconfigure(1, weight=1)
+        self.recent_label = tk.Label(self.recent_frame, text="Recent decks", font=THEME_FONT_SMALL)
+        self.recent_label.grid(column=0, row=0, sticky="w", padx=ui((0, 8)))
+        self.recent_combo = ttk.Combobox(self.recent_frame, state="disabled")
+        self.recent_combo.grid(column=1, row=0, sticky="ew")
+        self.recent_combo.bind("<<ComboboxSelected>>", self._on_recent_selected)
 
     # Exercises
         self.main_frame = tk.Frame(root)
         self.main_frame.pack(fill="both", expand=True)
         self.main_frame.columnconfigure(0, weight=1)
-        self.main_frame.columnconfigure(1, weight=0, minsize=200)
+        self.main_frame.columnconfigure(1, weight=0, minsize=ui(200))
         self.main_frame.rowconfigure(0, weight=1)
 
         # Notebook
@@ -447,7 +480,7 @@ class Application:
         self._build_exercise_tab("write", "Write", WRITE_SECTIONS)
 
     # Right column
-        self.right_column = tk.Frame(self.main_frame, width=200)
+        self.right_column = tk.Frame(self.main_frame, width=ui(200))
         self.right_column.grid(column=1, row=0, sticky="ns")
         self.right_column.pack_propagate(False)
 
@@ -456,7 +489,7 @@ class Application:
         self.global_frame.pack(side="top", fill="x")
 
         self.global_label = tk.Label(self.global_frame, text="Global Settings", font=THEME_FONT_BOLD)
-        self.global_label.grid(row=0, column=0, columnspan=2, pady=(4, 6))
+        self.global_label.grid(row=0, column=0, columnspan=2, pady=ui((4, 6)))
 
         row = 1
         self.global_time_text, self.global_time_entry, row = (
@@ -477,14 +510,14 @@ class Application:
         self.categories_scroll.pack(fill="both", expand=True)
 
         self.categories_label = self.categories_scroll.label(text="Loaded categories", font=THEME_FONT_BOLD)
-        self.categories_label.pack(fill="x", padx=2)
+        self.categories_label.pack(fill="x", padx=ui(2))
         add_tooltip(self.categories_label, SETTING_TOOLTIPS["loaded_categories"])
 
         self.categories_list = tk.Frame(self.categories_scroll.body)
         self.categories_list.pack(fill="x")
 
         self.categories_empty = self.categories_scroll.label(text="No deck loaded", font=THEME_FONT_SMALL)
-        self.categories_empty.pack(anchor="w", padx=6, pady=(4, 0))
+        self.categories_empty.pack(anchor="w", padx=ui(6), pady=ui((4, 0)))
 
 
     # Footer
@@ -505,15 +538,15 @@ class Application:
             self.footer, text="Reset", height=2, command=self.on_footer_reset,
             background=THEME_DANGER, activebackground=THEME_DANGER_HOVER,
         )
-        self.footer_reset.grid(column=2, row=0, padx=(0, 10))
+        self.footer_reset.grid(column=2, row=0, padx=ui((0, 10)))
         add_tooltip(self.footer_reset, SETTING_TOOLTIPS["reset"])
 
         self.footer_load = tk.Button(self.footer, text="Load settings", height=2, command=self.on_footer_load)
-        self.footer_load.grid(column=3, row=0, padx=(0, 10))
+        self.footer_load.grid(column=3, row=0, padx=ui((0, 10)))
         add_tooltip(self.footer_load, SETTING_TOOLTIPS["load_settings"])
 
         self.footer_save = tk.Button(self.footer, text="Save settings", height=2, command=self.on_footer_save)
-        self.footer_save.grid(column=4, row=0, padx=(0, 10))
+        self.footer_save.grid(column=4, row=0, padx=ui((0, 10)))
         add_tooltip(self.footer_save, SETTING_TOOLTIPS["save_settings"])
 
         # Start stays disabled until a deck is loaded.
@@ -526,6 +559,54 @@ class Application:
         self._set_start_enabled(False)
 
         self._bind_keys()
+        root.protocol("WM_DELETE_WINDOW", self.on_footer_quit)
+        self._auto_load_last_files()
+        self._refresh_recent_decks()
+
+    def _apply_image_preferences(self):
+        """Push the shared image mode and size cap into the media helpers."""
+        configure_images(
+            self.preferences.get("image_display_mode", "fit"),
+            self.preferences.get("max_image_width", 0),
+            self.preferences.get("max_image_height", 0),
+        )
+
+    def _remember_file(self, key, path):
+        """Remember a successfully loaded/saved file for startup auto-load."""
+        self.preferences[key] = str(path)
+        save_preferences(self.preferences)
+
+    def _refresh_recent_decks(self):
+        """Show the remembered decks in the main window."""
+        paths = [path for path in self.preferences.get("recent_decks", [])
+                 if isinstance(path, str)]
+        self.recent_combo.configure(values=paths, state="readonly" if paths else "disabled")
+        if paths:
+            self.recent_combo.current(0)
+
+    def _on_recent_selected(self, _event=None):
+        path = self.recent_combo.get()
+        if path:
+            self._load_deck(path)
+
+    def _auto_load_last_files(self):
+        """Apply remembered files quietly; settings first, then deck if needed."""
+        if self.preferences.get("auto_load_last_settings"):
+            path = self.preferences.get("last_settings")
+            if path and Path(path).is_file():
+                try:
+                    self._apply_settings(path, _read_settings(path), quiet=True)
+                except ConfigError:
+                    self.desk_status.configure(text="Last settings file unavailable")
+                else:
+                    self.settings_path = path
+                    self._remember_file("last_settings", path)
+
+        if self.config is None and self.preferences.get("auto_load_last_deck"):
+            path = self.preferences.get("last_deck")
+            if path:
+                if not self._load_deck(path, quiet=True):
+                    self.desk_status.configure(text="Last deck unavailable")
 
     def _set_start_enabled(self, enabled):
         """Start is usable only with a deck loaded; grey it out otherwise."""
@@ -537,7 +618,7 @@ class Application:
     def _global_setting(self, row, label_text, tooltip_text=None):
         """One Global Settings row"""
         label = tk.Label(self.global_frame, text=label_text, font=THEME_FONT)
-        label.grid(row=row, column=0, sticky="w", padx=(2, 4))
+        label.grid(row=row, column=0, sticky="w", padx=ui((2, 4)))
         entry = tk.Entry(self.global_frame, width=5)
         entry.grid(row=row, column=1, sticky="w")
         add_tooltip(label, tooltip_text)
@@ -549,17 +630,22 @@ class Application:
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
 
-        width = min(WINDOW_SIZE[0], max(WINDOW_MIN[0], screen_w - WINDOW_MARGIN[0]))
-        height = min(WINDOW_SIZE[1], max(WINDOW_MIN[1], screen_h - WINDOW_MARGIN[1]))
+        width = min(ui(WINDOW_SIZE[0]), max(ui(WINDOW_MIN[0]), screen_w - ui(WINDOW_MARGIN[0])))
+        height = min(ui(WINDOW_SIZE[1]), max(ui(WINDOW_MIN[1]), screen_h - ui(WINDOW_MARGIN[1])))
 
         x = max(0, (screen_w - width) // 2)
         y = max(0, (screen_h - height) // 2)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
 
         self.root.minsize(
-            min(WINDOW_MIN[0], width),
-            min(WINDOW_MIN[1], height),
+            min(ui(WINDOW_MIN[0]), width),
+            min(ui(WINDOW_MIN[1]), height),
         )
+
+    def _save_window_state(self):
+        """Persist the main window state if the preferences ask for it."""
+        remember_window_preferences(self.root, self.preferences, "main")
+        save_preferences(self.preferences)
 
     def _bind_keys(self):
         """Ctrl+1..4 switch tabs; Enter or a click outside the field loads a typed path."""
@@ -590,7 +676,7 @@ class Application:
 
         enabled_var = tk.IntVar()
         enabled = tk.Checkbutton(bar, text="Enabled", variable=enabled_var)
-        enabled.grid(column=0, row=0, padx=10, pady=8, sticky="w")
+        enabled.grid(column=0, row=0, padx=ui(10), pady=ui(8), sticky="w")
         add_tooltip(enabled, SETTING_TOOLTIPS["enabled"])
         setattr(self, f"{name}_enabled_var", enabled_var)
         setattr(self, f"{name}_enabled", enabled)
@@ -600,7 +686,7 @@ class Application:
             bar, text="Advanced", variable=advanced_var,
             command=lambda: self._show_advanced(name),
         )
-        advanced.grid(column=1, row=0, padx=10, pady=8, sticky="e")
+        advanced.grid(column=1, row=0, padx=ui(10), pady=ui(8), sticky="e")
         add_tooltip(advanced, SETTING_TOOLTIPS["advanced"])
         setattr(self, f"{name}_advanced_var", advanced_var)
         setattr(self, f"{name}_advanced", advanced)
@@ -639,24 +725,36 @@ class Application:
 
     def on_footer_reset(self):
         """Put every setting back to its default and unload the deck, after confirming."""
-        confirmed = messagebox.askyesno(
-            "Reset settings",
-            "Reset all settings to their defaults and unload the current deck?\n\n"
-            "This cannot be undone.",
-            parent=self.root,
-            icon="warning",
-            default="no",
-        )
-        if not confirmed:
-            return
+        if self.preferences.get("confirm_quit_reset", True):
+            confirmed = messagebox.askyesno(
+                "Reset settings",
+                "Reset all settings to their defaults and unload the current deck?\n\n"
+                "This cannot be undone.",
+                parent=self.root,
+                icon="warning",
+                default="no",
+            )
+            if not confirmed:
+                return
         for name in self._tabs:
             self._reset_tab(name)
         self._reset_globals()
         self._clear_deck()
+        clear_remembered_files(self.preferences)
+        save_preferences(self.preferences)
+        self._refresh_recent_decks()
+
+    def _default_globals(self):
+        custom = self.preferences.get("default_global_settings", {})
+        return {
+            attribute: custom.get(key, fallback)
+            for key, attribute in GLOBAL_FIELDS.items()
+            for fallback in (GLOBAL_DEFAULTS[attribute],)
+        }
 
     def _reset_globals(self):
-        """Put the global settings back to their defaults."""
-        for attribute, value in GLOBAL_DEFAULTS.items():
+        """Put the global settings back to the configured defaults."""
+        for attribute, value in self._default_globals().items():
             self._set_entry(getattr(self, attribute), value)
 
     def _reset_tab(self, name):
@@ -670,7 +768,15 @@ class Application:
             entry.insert(0, value)
 
     def on_header_settings(self):
-        pass
+        show_preferences(self.root)
+        self.preferences = load_preferences()
+        configure_debug_log(self.preferences.get("enable_debug_log", False))
+        apply_font_scale(self.root, self.preferences["font_scale"])
+        self._apply_image_preferences()
+        self.right_column.configure(width=ui(200))
+        self._fit_window()
+        apply_window_preferences(self.root, self.preferences, "main")
+        self._refresh_recent_decks()
 
     def on_header_about(self):
         show_about(self.root)
@@ -714,14 +820,16 @@ class Application:
         """The deck field's canonical value for the deck that is actually loaded."""
         return "" if self.config is None else str(self.config.path)
 
-    def _load_deck(self, path):
+    def _load_deck(self, path, quiet=False):
         """Validate a deck file and show what was loaded; report problems."""
         try:
             config = load_config(path)
         except ConfigError as error:
             # Keep the deck that is already loaded: a typo must not throw it away.
             self._set_entry(self.desk_entry, self._loaded_deck_text())
-            messagebox.showerror("Cannot load deck", str(error), parent=self.root)
+            log_error(f"cannot load deck {path}: {error}")
+            if not quiet:
+                messagebox.showerror("Cannot load deck", str(error), parent=self.root)
             return False
 
         self.config = config
@@ -729,8 +837,14 @@ class Application:
         self._fill_categories(config)
         self.desk_status.configure(text=self._describe(config))
         self._set_start_enabled(True)
+        self._remember_file("last_deck", config.path)
+        if not quiet:
+            remember_recent_deck(self.preferences, config.path)
+            save_preferences(self.preferences)
+            self._refresh_recent_decks()
+        log_debug(f"deck loaded: {config.path}")
 
-        if config.warnings:
+        if config.warnings and not quiet:
             self._show_warnings(config.warnings)
         return True
 
@@ -749,7 +863,7 @@ class Application:
         self.category_vars = {}
         self.category_checks = {}
         if config is None:
-            self.categories_empty.pack(anchor="w", padx=6, pady=(4, 0))
+            self.categories_empty.pack(anchor="w", padx=ui(6), pady=ui((4, 0)))
             return
 
         self.categories_empty.pack_forget()
@@ -765,12 +879,12 @@ class Application:
                 variable=var,
                 font=THEME_FONT,
                 fg=self._category_colour(var),
-                anchor="w", justify="left", wraplength=170,
+                anchor="w", justify="left", wraplength=ui(170),
             )
             check.configure(command=lambda box=check, box_var=var: box.configure(
                 fg=self._category_colour(box_var)))
             add_tooltip(check, SETTING_TOOLTIPS["loaded_categories"])
-            check.pack(fill="x", padx=6)
+            check.pack(fill="x", padx=ui(6))
             self.category_vars[name] = var
             self.category_checks[name] = check
 
@@ -819,6 +933,17 @@ class Application:
         pass
 
     def on_footer_quit(self):
+        if self.preferences.get("confirm_quit_reset", True):
+            confirmed = messagebox.askyesno(
+                "Quit DeskCard",
+                "Quit DeskCard now?",
+                parent=self.root,
+                icon="question",
+                default="no",
+            )
+            if not confirmed:
+                return
+        self._save_window_state()
         try:
             self.root.destroy()
         except Exception as e:
@@ -840,12 +965,14 @@ class Application:
             messagebox.showerror("Cannot load settings", str(error), parent=self.root)
             return
         self.settings_path = path
+        self._remember_file("last_settings", path)
         if deck_ok:
             messagebox.showinfo("Settings loaded", f"Loaded from {path}", parent=self.root)
 
-    def _apply_settings(self, path, data):
+    def _apply_settings(self, path, data, quiet=False):
         """Validate a settings file first, then apply it; False if the deck failed."""
         plan = self._plan_settings(path, data)
+        log_debug(f"settings loaded: {path}")
 
         for name, value in plan["global"].items():
             self._set_entry(getattr(self, GLOBAL_FIELDS[name]), value)
@@ -863,7 +990,8 @@ class Application:
         deck_ok = True
         if "deck" in plan:
             if plan["deck"]:
-                deck_ok = self._load_deck(self._resolve_deck_path(plan["deck"], path))
+                deck_ok = self._load_deck(
+                    self._resolve_deck_path(plan["deck"], path), quiet=quiet)
             else:
                 self._clear_deck()
 
@@ -984,9 +1112,12 @@ class Application:
                 encoding="utf-8",
             )
         except OSError as error:
+            log_error(f"cannot save settings to {path}: {error}")
             messagebox.showerror("Cannot save settings", str(error), parent=self.root)
             return
+        log_debug(f"settings saved: {path}")
         self.settings_path = path
+        self._remember_file("last_settings", path)
         messagebox.showinfo("Settings saved", f"Saved to {path}", parent=self.root)
 
     def _collect_settings(self, target_path=None):
@@ -1005,7 +1136,7 @@ class Application:
         }
 
     def on_footer_start(self):
-        """Validate settings, write category states, and run an Anki session."""
+        """Validate settings, write category states, and run a study session."""
         if self.config is None:
             messagebox.showwarning(
                 "No deck loaded", "Load a deck before starting a session.",
@@ -1019,12 +1150,17 @@ class Application:
             session = Session(
                 self.config, normalized,
                 category_states=data.get("categories"), save_categories=True,
+                score_deltas=self.preferences.get("score_deltas"),
+                count_all_directions=self.preferences.get(
+                    "count_all_directions", True),
             )
         except (SettingsError, ConfigError, OSError) as error:
             messagebox.showerror("Cannot start session", str(error), parent=self.root)
             return
 
-        runner = SessionRunner(self.root, session)
+        self._save_window_state()
+        runner = SessionRunner(self.root, session, preferences=self.preferences)
+        log_debug("session started")
         if runner.warnings:
             self._show_messages("Session warnings", runner.warnings)
         if not runner.has_work:

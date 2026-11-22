@@ -7,9 +7,9 @@ README.md. Keep both in sync.
 import tkinter as tk
 
 try:
-    from .theme import THEME_BG, THEME_FG, THEME_FONT_SMALL
+    from .theme import THEME_BG, THEME_FG, THEME_FONT_SMALL, ui
 except ImportError:  # started as a script, not as a package
-    from theme import THEME_BG, THEME_FG, THEME_FONT_SMALL
+    from theme import THEME_BG, THEME_FG, THEME_FONT_SMALL, ui
 
 
 SETTING_TOOLTIPS = {
@@ -71,7 +71,7 @@ SETTING_TOOLTIPS = {
     "deck_entry": "Path to the deck JSON file. Press Enter or use Browse deck to load it.",
     "deck_status": "Shows card/category counts and load warnings for the current deck.",
     "edit_deck": "Planned: open the selected deck in an editor.",
-    "settings": "Planned: app-wide options such as theme.",
+    "settings": "Open app preferences.",
     "about": "Show version and about information.",
     "quit": "Close DeskCard immediately.",
     "reset": "Restore all settings to defaults and unload the current deck. Requires confirmation.",
@@ -131,9 +131,9 @@ def _tooltip_window(root):
         pass
     window.configure(bg=THEME_BG)
     label = tk.Label(
-        window, justify="left", wraplength=320,
+        window, justify="left", wraplength=ui(320),
         bg=THEME_BG, fg=THEME_FG, font=THEME_FONT_SMALL,
-        relief="solid", borderwidth=1, padx=8, pady=6,
+        relief="solid", borderwidth=1, padx=ui(8), pady=ui(6),
     )
     label.pack()
     window._tooltip_label = label

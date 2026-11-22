@@ -12,16 +12,18 @@ try:  # imported as ui.anki
         THEME_ACCENT, THEME_ACCENT_FG, THEME_ACCENT_HOVER, THEME_BG,
         THEME_DANGER, THEME_DANGER_HOVER, THEME_FG, THEME_FG_DIM,
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
-        apply_theme,
+        apply_theme, ui,
     )
+    from ..config.loader import SCORE_DELTAS
     from .media import image_frame, play_audio, stop_audio
 except ImportError:  # started as a script: python src/ui/anki.py
     from helpers.theme import (
         THEME_ACCENT, THEME_ACCENT_FG, THEME_ACCENT_HOVER, THEME_BG,
         THEME_DANGER, THEME_DANGER_HOVER, THEME_FG, THEME_FG_DIM,
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
-        apply_theme,
+        apply_theme, ui,
     )
+    from config.loader import SCORE_DELTAS
     from media import image_frame, play_audio, stop_audio
 
 
@@ -40,13 +42,13 @@ FONT_SUB = (THEME_FONT_FAMILY, 10)
 FONT_HINT = (THEME_FONT_FAMILY, 9)
 FONT_META = (THEME_FONT_FAMILY, 8)
 
-GRADES = [
-    ("Impossible", -5, THEME_DANGER, THEME_DANGER_HOVER),
-    ("Hard", 0, "#5a5a5a", "#6a6a6a"),
-    ("Medium", 2, "#4a6b8a", "#5a7b9a"),
-    ("Light", 5, "#4a8a6b", "#5a9a7b"),
-    ("Easy", 10, SUCCESS_BG, "#3f7b56"),
-]
+GRADE_STYLES = {
+    "impossible": ("Impossible", THEME_DANGER, THEME_DANGER_HOVER),
+    "hard": ("Hard", "#5a5a5a", "#6a6a6a"),
+    "medium": ("Medium", "#4a6b8a", "#5a7b9a"),
+    "light": ("Light", "#4a8a6b", "#5a9a7b"),
+    "easy": ("Easy", SUCCESS_BG, "#3f7b56"),
+}
 
 
 class CardSide:
@@ -93,7 +95,7 @@ def flat_button(parent, text, command=None, kind="dark", small=False, **kw):
         highlightthickness=0, bg=bg, fg=fg, activebackground=hover,
         activeforeground=fg, cursor="hand2", takefocus=0,
         font=THEME_FONT_SMALL if small else FONT,
-        padx=8 if small else 16, pady=2 if small else 8,
+        padx=ui(8) if small else 16, pady=ui(2) if small else 8,
     )
     options.update(kw)
     return tk.Button(parent, **options)
@@ -103,10 +105,20 @@ class Application:
     """Show the front, reveal the back, then self-grade the card."""
 
     def __init__(self, root, card=None, on_grade=None, on_skip=None,
-                 on_quit=None, warnings=()):
+                 on_quit=None, warnings=(), score_deltas=None):
         self.root = root
         root.title("DeskCard - Anki")
         apply_theme(root)
+
+        self.score_deltas = dict(SCORE_DELTAS)
+        if score_deltas:
+            for grade, delta in score_deltas.items():
+                if grade in GRADE_STYLES:
+                    self.score_deltas[grade] = int(delta)
+        self.grade_rows = [
+            (label, self.score_deltas[grade], bg, hover)
+            for grade, (label, bg, hover) in GRADE_STYLES.items()
+        ]
 
         self.card = card or DEFAULT_CARD
         self.warnings = tuple(warnings)
@@ -127,7 +139,7 @@ class Application:
         root.bind("<Escape>", lambda _e: self.on_quit())
         # Grade with 1–5 (main row or keypad) as a keyboard-only alternative
         # to clicking a button. The grade guard ignores keys while locked.
-        for number, row in enumerate(GRADES, start=1):
+        for number, row in enumerate(self.grade_rows, start=1):
             grade = row[0]
             root.bind(f"<Key-{number}>", lambda _e, g=grade: self._grade(g))
             root.bind(f"<KP_{number}>", lambda _e, g=grade: self._grade(g))
@@ -239,15 +251,15 @@ class Application:
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
         width = min(
-            WINDOW_SIZE[0], max(WINDOW_MIN[0], screen_w - WINDOW_MARGIN[0]))
+            ui(WINDOW_SIZE[0]), max(ui(WINDOW_MIN[0]), screen_w - ui(WINDOW_MARGIN[0])))
         height = min(
-            WINDOW_SIZE[1], max(WINDOW_MIN[1], screen_h - WINDOW_MARGIN[1]))
+            ui(WINDOW_SIZE[1]), max(ui(WINDOW_MIN[1]), screen_h - ui(WINDOW_MARGIN[1])))
         x = max(0, (screen_w - width) // 2)
         y = max(0, (screen_h - height) // 2)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
         self.root.minsize(
-            min(WINDOW_MIN[0], width),
-            min(WINDOW_MIN[1], height),
+            min(ui(WINDOW_MIN[0]), width),
+            min(ui(WINDOW_MIN[1]), height),
         )
         self._window_width = width
 
@@ -292,17 +304,17 @@ class Application:
                 button.configure(state=state)
         if self._reveal_area is not None:
             if self.revealed:
-                self._reveal_area.pack(fill="x", pady=(6, 8))
+                self._reveal_area.pack(fill="x", pady=ui((6, 8)))
             else:
                 self._reveal_area.pack_forget()
         if self._show_button is not None:
             if self.revealed:
                 self._show_button.pack_forget()
             else:
-                self._show_button.pack(pady=(12, 0))
+                self._show_button.pack(pady=ui((12, 0)))
         if self._front_after_sub_label is not None:
             if self.revealed:
-                self._front_after_sub_label.pack(anchor="center", pady=(4, 0))
+                self._front_after_sub_label.pack(anchor="center", pady=ui((4, 0)))
             else:
                 self._front_after_sub_label.pack_forget()
         if self._hint_label is not None:
@@ -329,7 +341,8 @@ class Application:
 
     def _build_header(self):
         header = tk.Frame(self.root, bg=THEME_BG)
-        header.pack(fill="x", padx=28, pady=(14, 4))
+        self._header = header
+        header.pack(fill="x", padx=ui(28), pady=ui((14, 4)))
 
         title = tk.Frame(header, bg=THEME_BG)
         title.pack(side="left")
@@ -342,7 +355,7 @@ class Application:
         actions.pack(side="right")
         self._skip_button = flat_button(
             actions, "Skip", command=self.on_skip, kind="ghost")
-        self._skip_button.pack(side="left", padx=(0, 6))
+        self._skip_button.pack(side="left", padx=ui((0, 6)))
         self._quit_button = flat_button(
             actions, "Quit", command=self.on_quit, kind="danger")
         self._quit_button.pack(side="left")
@@ -354,7 +367,7 @@ class Application:
         """Render one side: text, sub, audio, and an optional image slot."""
         frame = tk.Frame(parent, bg=PANEL_BG)
         inner = tk.Frame(frame, bg=PANEL_BG)
-        inner.pack(fill="x", padx=24, pady=16)
+        inner.pack(fill="x", padx=ui(24), pady=ui(16))
 
         meta = "   ·   ".join(
             part for part in (side.category.upper(), side.direction.upper())
@@ -366,14 +379,14 @@ class Application:
         text = side.text or ""
         text_font = FONT_TITLE if len(text) <= 24 else FONT_TITLE_SMALL
         row = tk.Frame(inner, bg=PANEL_BG)
-        row.pack(anchor="center", pady=(6, 0))
+        row.pack(anchor="center", pady=ui((6, 0)))
         text_label = tk.Label(row, text=text, bg=PANEL_BG, fg=THEME_FG,
                               font=text_font, justify="center", wraplength=wrap)
         text_label.pack(side="left", anchor="n")
         self._face_wrap_labels.append(text_label)
         if side.audio:
             flat_button(row, "▶", command=lambda s=side: self._play(s),
-                        small=True).pack(side="left", padx=(12, 0), pady=(4, 0))
+                        small=True).pack(side="left", padx=ui((12, 0)), pady=ui((4, 0)))
 
         show_sub = getattr(side, "show_sub", "always")
         if side.sub and show_sub != "never":
@@ -382,7 +395,7 @@ class Application:
                                  justify="center", wraplength=wrap)
             self._face_wrap_labels.append(sub_label)
             if show_sub == "always" or (show_sub == "after" and not is_front):
-                sub_label.pack(anchor="center", pady=(4, 0))
+                sub_label.pack(anchor="center", pady=ui((4, 0)))
             else:
                 self._front_after_sub_label = sub_label
 
@@ -391,28 +404,28 @@ class Application:
                 inner, side.image, width=220, height=136,
                 max_size=(212, 128), bg="#2a2a2a", font=FONT_META,
             )
-            slot.pack(anchor="center", pady=(8, 0))
+            slot.pack(anchor="center", pady=ui((8, 0)))
 
         return frame
 
     def _build_body(self):
         body = tk.Frame(self.root, bg=THEME_BG)
-        body.pack(fill="both", expand=True, padx=28, pady=(6, 0))
+        body.pack(fill="both", expand=True, padx=ui(28), pady=ui((6, 0)))
 
         wrap = self._wraplength()
 
         front = self._face_block(body, self.card.front, wrap, is_front=True)
-        front.pack(fill="x", pady=(8, 6))
+        front.pack(fill="x", pady=ui((8, 6)))
 
         # Built once and shown/hidden by _sync_state; no teardown on reveal.
         self._reveal_area = tk.Frame(body, bg=THEME_BG)
         back = self._face_block(self._reveal_area, self.card.back, wrap)
-        back.pack(fill="x", pady=(6, 8))
+        back.pack(fill="x", pady=ui((6, 8)))
         grade_frame = tk.Frame(self._reveal_area, bg=THEME_BG)
-        grade_frame.pack(fill="x", side="bottom", pady=(8, 0))
-        for column in range(len(GRADES)):
+        grade_frame.pack(fill="x", side="bottom", pady=ui((8, 0)))
+        for column in range(len(self.grade_rows)):
             grade_frame.columnconfigure(column, weight=1, uniform="grade")
-        for column, (label, delta, bg, hover) in enumerate(GRADES):
+        for column, (label, delta, bg, hover) in enumerate(self.grade_rows):
             sign = "+" if delta > 0 else ""
             button = flat_button(
                 grade_frame, f"{label}\n{sign}{delta}",
@@ -421,7 +434,7 @@ class Application:
                 bg=bg, activebackground=hover, fg="#ffffff",
                 takefocus=1,
             )
-            button.grid(row=0, column=column, sticky="nsew", padx=4, pady=4)
+            button.grid(row=0, column=column, sticky="nsew", padx=ui(4), pady=ui(4))
             self._grade_buttons.append(button)
 
         self._show_button = flat_button(
@@ -434,7 +447,7 @@ class Application:
 
     def _build_footer(self):
         self._footer = tk.Frame(self.root, bg=THEME_BG)
-        self._footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
+        self._footer.pack(fill="x", side="bottom", padx=ui(28), pady=ui((4, 16)))
         self._hint_label = tk.Label(
             self._footer, text="", bg=THEME_BG, fg=THEME_FG_DIM,
             font=FONT_HINT,

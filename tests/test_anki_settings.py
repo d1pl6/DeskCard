@@ -41,6 +41,36 @@ class AnkiSettingsTests(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_grade_buttons_use_configured_deltas(self):
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        card = AnkiCard(CardSide("Front"), CardSide("Back"))
+        try:
+            app = AnkiApplication(
+                root, card=card, score_deltas={
+                    "easy": 1, "impossible": -9,
+                },
+            )
+            app._reveal()
+            root.update()
+
+            def button_texts(widget):
+                found = []
+                if isinstance(widget, tk.Button):
+                    found.append(widget.cget("text"))
+                for child in widget.winfo_children():
+                    found.extend(button_texts(child))
+                return found
+
+            texts = button_texts(root)
+            self.assertIn("Easy\n+1", texts)
+            self.assertIn("Impossible\n-9", texts)
+            self.assertNotIn("Easy\n+10", texts)
+        finally:
+            root.destroy()
+
     def test_sub_modes_control_visibility(self):
         import tkinter as tk
 

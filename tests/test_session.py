@@ -141,6 +141,18 @@ class SessionTests(unittest.TestCase):
         self.assertIsNotNone(config.card("one").last_reviewed)
         self.assertEqual(json.loads(path.read_text())["first"]["one"]["score"], 20)
 
+    def test_custom_score_deltas(self):
+        path = write_deck(tempfile.mkdtemp())
+        config = load_config(path)
+        session = Session(
+            config, settings(), rng=random.Random(1), save_categories=False,
+            score_deltas={"easy": 7, "impossible": -9},
+        )
+        presentation = next(event for event in session if hasattr(event, "spec"))
+        session.record(presentation, "easy")
+        self.assertEqual(config.card("one").score, 17)
+        self.assertEqual(json.loads(path.read_text())["first"]["one"]["score"], 17)
+
     def test_direction_counter_only_in_random(self):
         data = settings()
         data["exercises"]["anki"]["settings"]["other_direction"] = "random"
@@ -164,6 +176,22 @@ class SessionTests(unittest.TestCase):
         list(session)
         self.assertEqual(config.card("one").normal, 5)
         self.assertEqual(config.card("one").reverse, 5)
+
+    def test_forced_direction_counter_preference(self):
+        for mode, field in (("normal", "normal"), ("reverse", "reverse")):
+            with self.subTest(mode=mode):
+                data = settings()
+                data["exercises"]["anki"]["settings"]["other_direction"] = mode
+                config = load_config(write_deck(tempfile.mkdtemp()))
+                session = Session(
+                    config, data, rng=random.Random(1), save_categories=False,
+                    count_all_directions=True,
+                )
+                self.assertEqual(
+                    next(event for event in session if hasattr(event, "spec")).card_ids[0],
+                    "one",
+                )
+                self.assertEqual(getattr(config.card("one"), field), 6)
 
     def test_score_filter_skips_cards(self):
         data = settings()

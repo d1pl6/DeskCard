@@ -12,6 +12,11 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
 import pygame
 
+try:  # imported as src.ui.media
+    from ..app_preferences import IMAGE_DISPLAY_MODES
+except ImportError:  # started as a script from src/ui
+    from app_preferences import IMAGE_DISPLAY_MODES
+
 try:  # Pillow is optional; image-only cards degrade to a placeholder.
     from PIL import Image, ImageTk
 except ImportError:  # pragma: no cover - exercised only on minimal installs
@@ -22,6 +27,35 @@ except ImportError:  # pragma: no cover - exercised only on minimal installs
 _AUDIO_INITIALIZED = False
 _SOUND = None
 _IMAGE_CACHE = {}
+_IMAGE_MODE = "fit"
+_IMAGE_MAX = (0, 0)
+
+
+def configure_images(mode="fit", max_width=0, max_height=0):
+    """Set the shared image display mode and global size cap."""
+    global _IMAGE_MODE, _IMAGE_MAX
+    if mode not in IMAGE_DISPLAY_MODES:
+        mode = "fit"
+    try:
+        maximum = (max(0, int(max_width)), max(0, int(max_height)))
+    except (TypeError, ValueError):
+        maximum = (0, 0)
+    if mode == _IMAGE_MODE and maximum == _IMAGE_MAX:
+        return
+    _IMAGE_MODE = mode
+    _IMAGE_MAX = maximum
+    _IMAGE_CACHE.clear()
+
+
+def _effective_size(max_size):
+    """Apply the global cap without ever enlarging a screen's own slot."""
+    width, height = int(max_size[0]), int(max_size[1])
+    cap_width, cap_height = _IMAGE_MAX
+    if cap_width:
+        width = min(width, cap_width)
+    if cap_height:
+        height = min(height, cap_height)
+    return max(1, width), max(1, height)
 
 
 def play_audio(path):
@@ -59,21 +93,39 @@ def audio_busy():
 
 
 def load_image(path, max_size=(240, 150)):
-    """Return a cached :class:`PhotoImage` scaled to fit ``max_size``.
+    """Return a cached :class:`PhotoImage` for ``path``.
 
-    Returns ``None`` when Pillow is unavailable or the file cannot be opened.
-    Callers keep the returned object referenced by the label; the module cache
-    also protects it from garbage collection.
+    The shared display mode decides how the image relates to ``max_size``:
+    ``fit`` keeps its aspect ratio, ``stretch`` fills the slot, and ``original``
+    leaves small images alone while centre-cropping larger ones to the slot.
+    A global max-image preference can only shrink the slot size.
     """
     if not path or Image is None or ImageTk is None:
         return None
-    key = (str(path), tuple(max_size))
+    size = _effective_size(max_size)
+    key = (str(path), size, _IMAGE_MODE, _IMAGE_MAX)
     if key in _IMAGE_CACHE:
         return _IMAGE_CACHE[key]
     try:
         with Image.open(path) as source:
             image = source.convert("RGBA")
-            image.thumbnail(tuple(max_size), Image.Resampling.LANCZOS)
+            if _IMAGE_MODE == "stretch":
+                image = image.resize(size, Image.Resampling.LANCZOS)
+            elif _IMAGE_MODE == "fit":
+                image.thumbnail(size, Image.Resampling.LANCZOS)
+            else:  # original: keep native size, honour global cap, crop to slot
+                cap_width, cap_height = _IMAGE_MAX
+                cap = (cap_width or image.width, cap_height or image.height)
+                if cap != (image.width, image.height):
+                    image.thumbnail(cap, Image.Resampling.LANCZOS)
+                if image.width > size[0] or image.height > size[1]:
+                    left = max(0, (image.width - size[0]) // 2)
+                    top = max(0, (image.height - size[1]) // 2)
+                    image = image.crop((
+                        left, top,
+                        min(image.width, left + size[0]),
+                        min(image.height, top + size[1]),
+                    ))
             photo = ImageTk.PhotoImage(image)
     except (OSError, ValueError):
         return None

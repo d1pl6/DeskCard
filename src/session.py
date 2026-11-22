@@ -411,6 +411,8 @@ class Session:
         *,
         rng: random.Random | None = None,
         save_categories: bool = True,
+        score_deltas: dict[str, int] | None = None,
+        count_all_directions: bool = False,
     ) -> None:
         """Build a session from a deck and settings.
 
@@ -418,11 +420,17 @@ class Session:
         results are always saved by :meth:`record` and :meth:`finish`.
         """
         self.config = config
+        self.count_all_directions = count_all_directions
         self.settings = (
             settings if isinstance(settings, NormalizedSettings)
             else normalize_settings(settings)
         )
         self.rng = rng or random.Random()
+        self.score_deltas = dict(SCORE_DELTAS)
+        if score_deltas:
+            for grade, delta in score_deltas.items():
+                if grade in SCORE_DELTAS:
+                    self.score_deltas[grade] = int(delta)
         self.media_base = config.path.resolve().parent
         self.warnings: list[str] = []
         # Presentations are built (and their direction counters bumped) as a
@@ -534,9 +542,9 @@ class Session:
     def _choose_direction(self, card: CardRecord, mode: str) -> tuple[str, bool]:
         """Return the resolved direction and whether it should be counted."""
         if mode == "normal":
-            return "normal", False
+            return "normal", self.count_all_directions
         if mode == "reverse":
-            return "reverse", False
+            return "reverse", self.count_all_directions
         normal, reverse = card.normal, card.reverse
         if normal == reverse:
             direction = self.rng.choice(("normal", "reverse"))
@@ -707,7 +715,7 @@ class Session:
             if presentation is None:
                 continue
             # Only cards that actually make it onto a presentation get their
-            # direction counter bumped, and only in random-direction mode.
+            # direction counter bumped. Forced modes count when enabled.
             for used_card, used_draw in counted:
                 if used_draw.count_direction:
                     self._count_direction(used_card, used_draw.direction)
@@ -845,9 +853,9 @@ class Session:
 
     def record(self, presentation: Presentation, grade: str) -> None:
         """Apply one result to every card used by ``presentation`` and save."""
-        if grade not in SCORE_DELTAS:
+        if grade not in self.score_deltas:
             raise ValueError(f"unknown grade {grade!r}")
-        delta = SCORE_DELTAS[grade]
+        delta = self.score_deltas[grade]
         stamp = (
             datetime.now(timezone.utc).replace(microsecond=0)
             .isoformat().replace("+00:00", "Z")

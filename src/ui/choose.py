@@ -20,7 +20,7 @@ try:  # imported as ui.choose
         THEME_ACCENT, THEME_ACCENT_FG, THEME_ACCENT_HOVER, THEME_BG,
         THEME_DANGER, THEME_DANGER_HOVER, THEME_FG, THEME_FG_DIM,
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
-        apply_theme,
+        apply_theme, ui,
     )
     from .media import image_frame, play_audio, stop_audio
 except ImportError:  # started as a script: python src/ui/choose.py
@@ -28,7 +28,7 @@ except ImportError:  # started as a script: python src/ui/choose.py
         THEME_ACCENT, THEME_ACCENT_FG, THEME_ACCENT_HOVER, THEME_BG,
         THEME_DANGER, THEME_DANGER_HOVER, THEME_FG, THEME_FG_DIM,
         THEME_FONT_BOLD, THEME_FONT_FAMILY, THEME_FONT_SMALL,
-        apply_theme,
+        apply_theme, ui,
     )
     from media import image_frame, play_audio, stop_audio
 
@@ -112,7 +112,7 @@ def flat_button(parent, text, command=None, kind="dark", small=False, **kw):
         highlightthickness=0, bg=bg, fg=fg, activebackground=hover,
         activeforeground=fg, cursor="hand2", takefocus=0,
         font=THEME_FONT_SMALL if small else FONT,
-        padx=8 if small else 16, pady=2 if small else 8,
+        padx=ui(8) if small else 16, pady=ui(2) if small else 8,
     )
     options.update(kw)
     return tk.Button(parent, **options)
@@ -240,7 +240,7 @@ class ChoiceCard(tk.Frame):
     cards themselves only need idle and selected states."""
 
     def __init__(self, parent, index, text, *, state="idle", command=None,
-                 wraplength=380, font=FONT_CHOICE):
+                 wraplength=ui(380), font=FONT_CHOICE):
         bg, border, fg, cap_bg = choice_colors(state)
         super().__init__(parent, bg=bg, highlightthickness=2,
                          highlightbackground=border, highlightcolor=border)
@@ -251,12 +251,12 @@ class ChoiceCard(tk.Frame):
         self._cap_bg = cap_bg
 
         row = tk.Frame(self, bg=bg)
-        row.pack(fill="both", expand=True, padx=12, pady=10)
+        row.pack(fill="both", expand=True, padx=ui(12), pady=ui(10))
 
         cap_text = KEY_HINTS[index] if index < len(KEY_HINTS) else "·"
         cap = tk.Label(row, text=cap_text, bg=cap_bg, fg=fg, font=FONT_META,
-                       width=2, pady=2)
-        cap.pack(side="left", padx=(0, 10), anchor="n")
+                       width=2, pady=ui(2))
+        cap.pack(side="left", padx=ui((0, 10)), anchor="n")
         self._cap = cap
         self._parts += [(cap, cap_bg)]
         self._fg_widgets.append(cap)
@@ -513,15 +513,15 @@ class Application:
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
         width = min(
-            WINDOW_SIZE[0], max(WINDOW_MIN[0], screen_w - WINDOW_MARGIN[0]))
+            ui(WINDOW_SIZE[0]), max(ui(WINDOW_MIN[0]), screen_w - ui(WINDOW_MARGIN[0])))
         height = min(
-            WINDOW_SIZE[1], max(WINDOW_MIN[1], screen_h - WINDOW_MARGIN[1]))
+            ui(WINDOW_SIZE[1]), max(ui(WINDOW_MIN[1]), screen_h - ui(WINDOW_MARGIN[1])))
         x = max(0, (screen_w - width) // 2)
         y = max(0, (screen_h - height) // 2)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
         self.root.minsize(
-            min(WINDOW_MIN[0], width),
-            min(WINDOW_MIN[1], height),
+            min(ui(WINDOW_MIN[0]), width),
+            min(ui(WINDOW_MIN[1]), height),
         )
         self._window_width = width
 
@@ -607,13 +607,14 @@ class Application:
                 self._footer, text=text, bg=THEME_BG, fg="#d9c04f",
                 font=FONT_META, justify="left", wraplength=wrap,
             )
-            self._warning_label.pack(side="bottom", anchor="w", pady=(2, 0))
+            self._warning_label.pack(side="bottom", anchor="w", pady=ui((2, 0)))
         else:
             self._warning_label.configure(text=text, wraplength=wrap)
 
     def _build_header(self):
         header = tk.Frame(self.root, bg=THEME_BG)
-        header.pack(fill="x", padx=28, pady=(14, 4))
+        self._header = header
+        header.pack(fill="x", padx=ui(28), pady=ui((14, 4)))
 
         title = tk.Frame(header, bg=THEME_BG)
         title.pack(side="left")
@@ -626,14 +627,14 @@ class Application:
         actions.pack(side="right")
         self._skip_button = flat_button(
             actions, "Skip", command=self.on_skip, kind="ghost")
-        self._skip_button.pack(side="left", padx=(0, 6))
+        self._skip_button.pack(side="left", padx=ui((0, 6)))
         self._quit_button = flat_button(
             actions, "Quit", command=self.on_quit, kind="danger")
         self._quit_button.pack(side="left")
 
     def _build_footer(self):
         self._footer = tk.Frame(self.root, bg=THEME_BG)
-        self._footer.pack(fill="x", side="bottom", padx=28, pady=(4, 16))
+        self._footer.pack(fill="x", side="bottom", padx=ui(28), pady=ui((4, 16)))
         self._hint_label = tk.Label(
             self._footer, text="", bg=THEME_BG, fg=THEME_FG_DIM,
             font=FONT_HINT)
@@ -645,12 +646,12 @@ class Application:
     # -- body --------------------------------------------------------------
     def _build_body(self):
         body = tk.Frame(self.root, bg=THEME_BG)
-        body.pack(fill="both", expand=True, padx=28, pady=(6, 0))
+        body.pack(fill="both", expand=True, padx=ui(28), pady=ui((6, 0)))
 
         self._prompt_card(body).pack(fill="x")
 
         stage = tk.Frame(body, bg=THEME_BG)
-        stage.pack(fill="both", expand=True, pady=(14, 0))
+        stage.pack(fill="both", expand=True, pady=ui((14, 0)))
         self._choice_holder = tk.Frame(stage, bg=THEME_BG)
         self._build_choice_stage(self._choice_holder)
         self._answer_holder = tk.Frame(stage, bg=THEME_BG)
@@ -659,7 +660,7 @@ class Application:
         data = self.card
         panel = tk.Frame(parent, bg=PANEL_BG)
         inner = tk.Frame(panel, bg=PANEL_BG)
-        inner.pack(fill="x", padx=28, pady=18)
+        inner.pack(fill="x", padx=ui(28), pady=ui(18))
         wrap = max(400, min(900, self._window_width - 220))
 
         meta = "   ·   ".join(
@@ -671,7 +672,7 @@ class Application:
             ).pack(anchor="w")
 
         row = tk.Frame(inner, bg=PANEL_BG)
-        row.pack(anchor="w", pady=(4, 0))
+        row.pack(anchor="w", pady=ui((4, 0)))
         prompt_length = len(data.prompt)
         if prompt_length <= 32:
             prompt_font = FONT_PROMPT
@@ -688,19 +689,19 @@ class Application:
         if data.prompt_audio:
             self._prompt_audio_button = flat_button(
                 row, "▶", command=self._play_prompt, small=True)
-            self._prompt_audio_button.pack(side="left", padx=(12, 0), pady=(8, 0))
+            self._prompt_audio_button.pack(side="left", padx=ui((12, 0)), pady=ui((8, 0)))
 
         if data.prompt_sub:
             sub_label = tk.Label(inner, text=data.prompt_sub, bg=PANEL_BG,
                                  fg=THEME_FG_DIM, font=FONT_HINT,
                                  justify="left", wraplength=wrap)
-            sub_label.pack(anchor="w", pady=(2, 0))
+            sub_label.pack(anchor="w", pady=ui((2, 0)))
             self._prompt_wrap_labels.append(sub_label)
         if data.prompt_image:
             image_frame(
                 inner, data.prompt_image, width=220, height=136,
                 max_size=(212, 128), bg=PANEL_BG, font=FONT_META,
-            ).pack(anchor="w", pady=(8, 0))
+            ).pack(anchor="w", pady=ui((8, 0)))
         return panel
 
     def _choice_wraplength(self, columns):
@@ -728,7 +729,7 @@ class Application:
         # gives them equal width, so a long label cannot break the grid.
         for start in range(0, len(choices), columns):
             row = tk.Frame(grid, bg=THEME_BG)
-            row.pack(fill="x", pady=6)
+            row.pack(fill="x", pady=ui(6))
             for column in range(columns):
                 row.columnconfigure(column, weight=1, uniform="choice")
 
@@ -740,7 +741,7 @@ class Application:
                     command=lambda value=index: self._pick(value),
                     wraplength=wraplength,
                 )
-                card.grid(row=0, column=column, sticky="nsew", padx=6)
+                card.grid(row=0, column=column, sticky="nsew", padx=ui(6))
                 self._choice_widgets[index] = card
 
         grid_holder.bind_wheel_tree()
@@ -751,11 +752,11 @@ class Application:
         self._answer_panel = overlay
 
         shadow = tk.Frame(overlay.content, bg="#161616")
-        shadow.pack(padx=6, pady=6)
+        shadow.pack(padx=ui(6), pady=ui(6))
         sheet = tk.Frame(shadow, bg=PANEL_BG)
-        sheet.pack(padx=6, pady=6)
+        sheet.pack(padx=ui(6), pady=ui(6))
         inner = tk.Frame(sheet, bg=PANEL_BG)
-        inner.pack(padx=44, pady=20)
+        inner.pack(padx=ui(44), pady=ui(20))
 
         self._answer_body(inner)
         overlay.bind_wheel_tree()
@@ -773,13 +774,13 @@ class Application:
         """The wrong pick, laid out vertically so it can never widen the sheet."""
         picked = self.card.choices[self.selected]
         block = tk.Frame(parent, bg=PANEL_BG)
-        block.pack(anchor=anchor, pady=(8, 0))
+        block.pack(anchor=anchor, pady=ui((8, 0)))
         tk.Label(block, text="YOU CHOSE", bg=PANEL_BG, fg=THEME_FG_DIM,
                  font=FONT_META).pack(anchor="w")
         chosen_label = tk.Label(block, text=picked, bg=WRONG_BG, fg=WRONG_FG,
-                                font=FONT, padx=8, pady=2, wraplength=wrap,
+                                font=FONT, padx=ui(8), pady=ui(2), wraplength=wrap,
                                 justify="left")
-        chosen_label.pack(anchor="w", pady=(2, 0))
+        chosen_label.pack(anchor="w", pady=ui((2, 0)))
         self._answer_wrap_labels.append(chosen_label)
 
     def _answer_body(self, parent):
@@ -793,19 +794,19 @@ class Application:
             parent, text="CORRECT" if self.reveal_correct else "WRONG",
             bg=SUCCESS_BG if self.reveal_correct else WRONG_BG,
             fg=SUCCESS_FG if self.reveal_correct else WRONG_FG,
-            font=FONT_CHIP, padx=12, pady=4,
+            font=FONT_CHIP, padx=ui(12), pady=ui(4),
         )
         chip.pack(anchor="center")
 
         if not self.reveal_correct:
             tk.Label(parent, text="CORRECT ANSWER", bg=PANEL_BG,
                      fg=THEME_FG_DIM, font=FONT_META).pack(
-                anchor="center", pady=(8, 0))
+                anchor="center", pady=ui((8, 0)))
 
         # Two sides: text on the left, image on the right. Either side may be
         # absent, so image-only and text-only answers share this layout.
         sides = tk.Frame(parent, bg=PANEL_BG)
-        sides.pack(anchor="center", pady=(8, 0))
+        sides.pack(anchor="center", pady=ui((8, 0)))
 
         left = None
         if has_text:
@@ -832,8 +833,8 @@ class Application:
                 if data.answer_audio:
                     self._answer_audio_button = flat_button(
                         answer_row, "▶", command=self._play_answer, small=True)
-                    self._answer_audio_button.pack(side="left", padx=(12, 0),
-                                                   pady=(4, 0))
+                    self._answer_audio_button.pack(side="left", padx=ui((12, 0)),
+                                                   pady=ui((4, 0)))
 
             if data.answer_sub:
                 answer_sub = tk.Label(
@@ -841,7 +842,7 @@ class Application:
                     fg=THEME_FG_DIM, font=FONT_HINT, wraplength=wrap,
                     justify=justify,
                 )
-                answer_sub.pack(anchor="w", pady=(2, 0))
+                answer_sub.pack(anchor="w", pady=ui((2, 0)))
                 self._answer_wrap_labels.append(answer_sub)
 
         if has_image:

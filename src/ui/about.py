@@ -12,9 +12,9 @@ except ImportError:  # started as a script, not as a package
     from src._version import __version__
 
 try:
-    from .helpers.theme import THEME_ACCENT, THEME_FG, THEME_FONT, THEME_FONT_TITLE
+    from .helpers.theme import THEME_ACCENT, THEME_FG, THEME_FONT, THEME_FONT_TITLE, ui
 except ImportError:  # started as a script, not as a package
-    from helpers.theme import THEME_ACCENT, THEME_FG, THEME_FONT, THEME_FONT_TITLE
+    from helpers.theme import THEME_ACCENT, THEME_FG, THEME_FONT, THEME_FONT_TITLE, ui
 
 
 APP_NAME = "DeskCard"
@@ -33,11 +33,11 @@ class AboutWindow(tk.Toplevel):
         self.resizable(False, False)
         self.transient(parent)
 
-        frame = tk.Frame(self, padx=20, pady=16)
+        frame = tk.Frame(self, padx=ui(20), pady=ui(16))
         frame.pack(fill="both", expand=True)
 
         tk.Label(frame, text=APP_NAME, font=THEME_FONT_TITLE).pack(anchor="w")
-        tk.Label(frame, text=f"Version {APP_VERSION}", font=THEME_FONT).pack(anchor="w", pady=(2, 12))
+        tk.Label(frame, text=f"Version {APP_VERSION}", font=THEME_FONT).pack(anchor="w", pady=ui((2, 12)))
         tk.Label(frame, text=f"Author: {APP_AUTHOR or 'Not set'}", font=THEME_FONT).pack(anchor="w")
         tk.Label(frame, text=f"License: {APP_LICENSE}", font=THEME_FONT).pack(anchor="w")
 
@@ -48,11 +48,11 @@ class AboutWindow(tk.Toplevel):
             fg=THEME_ACCENT if APP_REPO else THEME_FG,
             cursor="hand2" if APP_REPO else "",
         )
-        self.repository.pack(anchor="w", pady=(6, 0))
+        self.repository.pack(anchor="w", pady=ui((6, 0)))
         if APP_REPO:
             self.repository.bind("<Button-1>", lambda _event: webbrowser.open(APP_REPO))
 
-        tk.Button(frame, text="Close", command=self.destroy).pack(anchor="e", pady=(16, 0))
+        tk.Button(frame, text="Close", command=self.destroy).pack(anchor="e", pady=ui((16, 0)))
 
         self._place_over(parent)
 
