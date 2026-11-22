@@ -1,0 +1,7 @@
+__pycache__/
+desks/
+.pytest_cache/
+build/
+*egg-info/
+
+*.json

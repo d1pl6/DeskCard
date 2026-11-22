@@ -1,0 +1,10 @@
+- Do wrap `Button`s in equal-width `Frame`s when laying out a grid of buttons. If one button is wider than its neighbour, the grid column grows and shifts every button in later rows; fixed-width cells keep the rows aligned.
+- Do hide scroll if content fits window
+- Do use `ui()` from the theme helper for pixel values (padding, wraplength, slider lengths, fixed widths) so the 50–200% font scale resizes the whole UI
+- Do put grouped controls in their own frame so long labels elsewhere cannot stretch their columns
+- Do disable media choices when the loaded deck reports errors for that medium or its backend is unavailable, and explain the reason in the tooltip.
+- Do give every app-preferences control a tooltip that explains what it changes.
+- Do set an exercise window's opacity after it is mapped. A `Toplevel` child of the withdrawn main window silently ignores `-alpha` before that point; some window managers only honour it once the window is fully mapped.
+- Do end the main window title with a dot so title-based window rules (for example under Hyprland) can float it.
+- Do keep exercise windows non-transient while the main window is withdrawn: a transient child of a withdrawn window never becomes viewable.
+- Do anchor the exercise status row to the header or footer and keep `time passed:` tied to the current card, so it resets with each new card and matches the answer time limit.

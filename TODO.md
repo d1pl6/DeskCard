@@ -18,5 +18,8 @@
     - Theme change
 - [ ] Editor
 - [ ] TTS
-- [ ] Loader (UI) should lock text/audio/image if errors occured in loaded desk
+- [x] Loader (UI) should lock text/audio/image if errors occured in loaded desk
 - [ ] SQLite support
+- [ ] Connect scoring-mode options
+- [ ] Write answer-matching modes beyond exact equality
+- [ ] Choose distractor sourcing rule
