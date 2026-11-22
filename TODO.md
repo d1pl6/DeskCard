@@ -11,12 +11,30 @@
         3. Ignore diacritics
             - Also accepts missing diacritics (šest = sest accepted).
 - [x] Tooltips
-- [ ] Settings
-    - Show "Skip" / "Quit"
-    - Show "time passed: ", "cards in batch: "session batches: "
-    - Score change
-    - Default global settings
-    - `**on**/off` increase "direction" counter in "normal" and "reverse" modes
+- [x] Settings
+    - [x] Show "Skip" / "Quit"
+    - [x] Show "time passed: ", "cards in batch: ", "session batches: "
+    - [x] Session status position (top / bottom)
+    - [x] Score change
+    - [x] Reset Preferences button
+    - [x] Exercise window opacity
+    - [x] Remember window geometry
+    - [x] Remember window position / monitor
+    - [x] Always on top during exercises
+    - [x] Restrict closing exercise
+    - [x] Auto-load last deck on startup
+    - [x] Auto-load last settings file on startup (separate toggle)
+    - [x] Image display mode
+    - [x] Max image size
+    - [x] Font scale / UI scale
+    - [x] Confirm on quit/reset
+    - [x] Enable debug log file
+    - Custom keyboard shortcuts
+    - Language / locale
+    - [x] Last deck & last settings file
+    - [x] Recent decks list
+    - [x] Default global settings
+    - [x] `**on**/off` increase "direction" counter in "normal" and "reverse" modes
     - Show next card in...
     - Theme change
 - [ ] Editor
