@@ -15,6 +15,7 @@ try:
         THEME_ACCENT, THEME_BG, THEME_FG, THEME_FG_DIM,
         THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL, apply_theme, ui,
     )
+    from .helpers.tooltips import APP_SETTING_TOOLTIPS, add_tooltip
 except ImportError:  # started as a script from src/ui
     from app_preferences import (
         DEFAULT_PREFERENCES, DEFAULT_SCORE_DELTAS, GRADES, IMAGE_DISPLAY_MODES,
@@ -27,6 +28,7 @@ except ImportError:  # started as a script from src/ui
         THEME_ACCENT, THEME_BG, THEME_FG, THEME_FG_DIM,
         THEME_FONT, THEME_FONT_BOLD, THEME_FONT_SMALL, apply_theme, ui,
     )
+    from helpers.tooltips import APP_SETTING_TOOLTIPS, add_tooltip
 
 
 def show_preferences(parent):
@@ -79,6 +81,10 @@ def show_preferences(parent):
         activebackground=THEME_BG, activeforeground=THEME_FG, anchor="w",
     )
 
+    def tip(widget, key):
+        add_tooltip(widget, APP_SETTING_TOOLTIPS[key])
+        return widget
+
     def make_tab(text):
         frame = tk.Frame(notebook, bg=THEME_BG)
         notebook.add(frame, text=text)
@@ -115,42 +121,48 @@ def show_preferences(parent):
     images, images_canvas = make_tab("Images")
     advanced, advanced_canvas = make_tab("Advanced")
 
-    tk.Label(exercise, text="Exercise window opacity", font=THEME_FONT_BOLD,
-             bg=THEME_BG, fg=THEME_FG).grid(
+    tip(tk.Label(exercise, text="Exercise window opacity", font=THEME_FONT_BOLD,
+                 bg=THEME_BG, fg=THEME_FG), "exercise_opacity").grid(
         row=0, column=0, columnspan=2, sticky="w")
-    tk.Scale(
+    tip(tk.Scale(
         exercise, from_=10, to=100, orient="horizontal", variable=opacity,
         bg=THEME_BG, fg=THEME_FG, highlightbackground=THEME_BG,
         troughcolor=THEME_BG, length=ui(260),
-    ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=ui((6, 12)))
+    ), "exercise_opacity").grid(
+        row=1, column=0, columnspan=2, sticky="ew", pady=ui((6, 12)))
 
-    tk.Checkbutton(exercise, text="Show \"Skip\" / \"Quit\"",
-                   variable=show_skip_quit, **check_options,
-                   ).grid(row=2, column=0, sticky="w", pady=ui(4), padx=ui((0, 12)))
-    tk.Checkbutton(exercise, text="Restrict closing exercise",
-                   variable=restrict_close, **check_options,
-                   ).grid(row=2, column=1, sticky="w", pady=ui(4))
-    tk.Checkbutton(exercise, text="Confirm on quit/reset",
-                   variable=confirm_quit_reset, **check_options,
-                   ).grid(row=3, column=0, columnspan=2, sticky="ew", pady=ui(4))
+    tip(tk.Checkbutton(exercise, text="Show \"Skip\" / \"Quit\"",
+                       variable=show_skip_quit, **check_options),
+        "show_skip_quit").grid(
+        row=2, column=0, sticky="w", pady=ui(4), padx=ui((0, 12)))
+    tip(tk.Checkbutton(exercise, text="Restrict closing exercise",
+                       variable=restrict_close, **check_options),
+        "restrict_exercise_close").grid(row=2, column=1, sticky="w", pady=ui(4))
+    tip(tk.Checkbutton(exercise, text="Confirm on quit/reset",
+                       variable=confirm_quit_reset, **check_options),
+        "confirm_quit_reset").grid(
+        row=3, column=0, columnspan=2, sticky="ew", pady=ui(4))
 
     tk.Label(exercise, text="Session status", font=THEME_FONT_BOLD,
              bg=THEME_BG, fg=THEME_FG).grid(
         row=4, column=0, columnspan=2, sticky="w", pady=ui((10, 4)))
-    tk.Checkbutton(exercise, text="Show \"time passed: \"",
-                   variable=show_time_passed, **check_options,
-                   ).grid(row=5, column=0, columnspan=2, sticky="ew", pady=ui(2))
-    tk.Checkbutton(exercise, text="Show \"cards in batch: \"",
-                   variable=show_cards_in_batch, **check_options,
-                   ).grid(row=6, column=0, columnspan=2, sticky="ew", pady=ui(2))
-    tk.Checkbutton(exercise, text="Show \"session batches: \"",
-                   variable=show_session_batches, **check_options,
-                   ).grid(row=7, column=0, columnspan=2, sticky="ew", pady=ui(2))
-    tk.Label(exercise, text="Position", font=THEME_FONT,
-             bg=THEME_BG, fg=THEME_FG_DIM).grid(
+    tip(tk.Checkbutton(exercise, text="Show \"time passed: \"",
+                       variable=show_time_passed, **check_options),
+        "show_time_passed").grid(
+        row=5, column=0, columnspan=2, sticky="ew", pady=ui(2))
+    tip(tk.Checkbutton(exercise, text="Show \"cards in batch: \"",
+                       variable=show_cards_in_batch, **check_options),
+        "show_cards_in_batch").grid(
+        row=6, column=0, columnspan=2, sticky="ew", pady=ui(2))
+    tip(tk.Checkbutton(exercise, text="Show \"session batches: \"",
+                       variable=show_session_batches, **check_options),
+        "show_session_batches").grid(
+        row=7, column=0, columnspan=2, sticky="ew", pady=ui(2))
+    tip(tk.Label(exercise, text="Position", font=THEME_FONT,
+                 bg=THEME_BG, fg=THEME_FG_DIM), "status_position").grid(
         row=8, column=0, sticky="w", pady=ui((6, 0)))
-    tk.OptionMenu(exercise, status_position, *STATUS_POSITIONS).grid(
-        row=8, column=1, sticky="e", pady=ui((6, 0)))
+    tip(tk.OptionMenu(exercise, status_position, *STATUS_POSITIONS),
+        "status_position").grid(row=8, column=1, sticky="e", pady=ui((6, 0)))
 
     score_frame = tk.Frame(exercise, bg=THEME_BG)
     score_frame.grid(row=9, column=0, columnspan=2, sticky="w", pady=ui((10, 4)))
@@ -158,23 +170,27 @@ def show_preferences(parent):
              bg=THEME_BG, fg=THEME_FG).grid(
         row=0, column=0, columnspan=len(GRADES), sticky="w")
     for column, grade in enumerate(GRADES):
-        tk.Label(score_frame, text=grade.title(), font=THEME_FONT_SMALL,
-                 bg=THEME_BG, fg=THEME_FG_DIM).grid(
+        tip(tk.Label(score_frame, text=grade.title(), font=THEME_FONT_SMALL,
+                     bg=THEME_BG, fg=THEME_FG_DIM),
+            f"score_deltas.{grade}").grid(
             row=1, column=column, padx=ui((0 if column == 0 else 4, 0)))
-        tk.Entry(score_frame, textvariable=score_vars[grade], width=5,
-                 justify="center").grid(
+        tip(tk.Entry(score_frame, textvariable=score_vars[grade], width=5,
+                     justify="center"), f"score_deltas.{grade}").grid(
             row=2, column=column, padx=ui((0 if column == 0 else 4, 0)),
             pady=ui((2, 0)))
 
-    tk.Checkbutton(window_tab, text="Remember window geometry",
-                   variable=remember_geometry, **check_options,
-                   ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=ui(4))
-    tk.Checkbutton(window_tab, text="Remember window position / monitor",
-                   variable=remember_position, **check_options,
-                   ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=ui(4))
-    tk.Checkbutton(window_tab, text="Always on top during exercises",
-                   variable=always_on_top, **check_options,
-                   ).grid(row=2, column=0, columnspan=2, sticky="ew", pady=ui(4))
+    tip(tk.Checkbutton(window_tab, text="Remember window geometry",
+                       variable=remember_geometry, **check_options),
+        "remember_geometry").grid(
+        row=0, column=0, columnspan=2, sticky="ew", pady=ui(4))
+    tip(tk.Checkbutton(window_tab, text="Remember window position / monitor",
+                       variable=remember_position, **check_options),
+        "remember_position").grid(
+        row=1, column=0, columnspan=2, sticky="ew", pady=ui(4))
+    tip(tk.Checkbutton(window_tab, text="Always on top during exercises",
+                       variable=always_on_top, **check_options),
+        "exercise_always_on_top").grid(
+        row=2, column=0, columnspan=2, sticky="ew", pady=ui(4))
     tk.Label(
         window_tab,
         text="Position is remembered per window on the current desktop layout.",
@@ -188,19 +204,21 @@ def show_preferences(parent):
         last_settings_text.set("(none)")
         recent_decks_text.set("0 deck(s)")
 
-    tk.Checkbutton(startup, text="Auto-load last deck on startup",
-                   variable=auto_deck, **check_options,
-                   ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=ui(2))
-    tk.Label(startup, textvariable=last_deck_text, font=THEME_FONT_SMALL,
-             bg=THEME_BG, fg=THEME_FG_DIM, wraplength=ui(280),
-             justify="left").grid(
+    tip(tk.Checkbutton(startup, text="Auto-load last deck on startup",
+                       variable=auto_deck, **check_options),
+        "auto_load_last_deck").grid(
+        row=0, column=0, columnspan=2, sticky="ew", pady=ui(2))
+    tip(tk.Label(startup, textvariable=last_deck_text, font=THEME_FONT_SMALL,
+                 bg=THEME_BG, fg=THEME_FG_DIM, wraplength=ui(280),
+                 justify="left"), "last_deck").grid(
         row=1, column=0, columnspan=2, sticky="w", padx=ui((20, 0)))
-    tk.Checkbutton(startup, text="Auto-load last settings file on startup",
-                   variable=auto_settings, **check_options,
-                   ).grid(row=2, column=0, columnspan=2, sticky="ew", pady=ui(2))
-    tk.Label(startup, textvariable=last_settings_text, font=THEME_FONT_SMALL,
-             bg=THEME_BG, fg=THEME_FG_DIM, wraplength=ui(280),
-             justify="left").grid(
+    tip(tk.Checkbutton(startup, text="Auto-load last settings file on startup",
+                       variable=auto_settings, **check_options),
+        "auto_load_last_settings").grid(
+        row=2, column=0, columnspan=2, sticky="ew", pady=ui(2))
+    tip(tk.Label(startup, textvariable=last_settings_text, font=THEME_FONT_SMALL,
+                 bg=THEME_BG, fg=THEME_FG_DIM, wraplength=ui(280),
+                 justify="left"), "last_settings").grid(
         row=3, column=0, columnspan=2, sticky="w", padx=ui((20, 0)))
 
     tk.Label(startup, text="Default global settings", font=THEME_FONT_BOLD,
@@ -211,57 +229,64 @@ def show_preferences(parent):
         ("batch", "Cards in batch:"), ("jitter", "Delay Jitter:"),
     )):
         row = 5 + offset
-        tk.Label(startup, text=label, font=THEME_FONT_SMALL,
-                 bg=THEME_BG, fg=THEME_FG_DIM).grid(
+        tooltip_key = f"default_global_settings.{key}"
+        tip(tk.Label(startup, text=label, font=THEME_FONT_SMALL,
+                     bg=THEME_BG, fg=THEME_FG_DIM), tooltip_key).grid(
             row=row, column=0, sticky="w")
-        tk.Entry(startup, textvariable=default_global_vars[key], width=12).grid(
-            row=row, column=1, sticky="e")
+        tip(tk.Entry(startup, textvariable=default_global_vars[key], width=12),
+            tooltip_key).grid(row=row, column=1, sticky="e")
 
     tk.Label(startup, text="Remembered files", font=THEME_FONT_BOLD,
              bg=THEME_BG, fg=THEME_FG).grid(
         row=9, column=0, columnspan=2, sticky="w", pady=ui((10, 4)))
-    tk.Label(startup, textvariable=recent_decks_text, font=THEME_FONT_SMALL,
-             bg=THEME_BG, fg=THEME_FG_DIM).grid(
+    tip(tk.Label(startup, textvariable=recent_decks_text, font=THEME_FONT_SMALL,
+                 bg=THEME_BG, fg=THEME_FG_DIM), "recent_decks").grid(
         row=10, column=0, sticky="w", pady=ui((4, 0)))
-    tk.Button(startup, text="Clear remembered files",
-              command=clear_remembered).grid(
+    tip(tk.Button(startup, text="Clear remembered files",
+                  command=clear_remembered), "clear_remembered_files").grid(
         row=10, column=1, sticky="e", pady=ui((4, 0)))
 
-    tk.Label(images, text="Image display mode", font=THEME_FONT,
-             bg=THEME_BG, fg=THEME_FG_DIM).grid(
+    tip(tk.Label(images, text="Image display mode", font=THEME_FONT,
+                 bg=THEME_BG, fg=THEME_FG_DIM), "image_display_mode").grid(
         row=0, column=0, sticky="w", pady=ui((10, 0)))
-    tk.OptionMenu(images, image_mode, *IMAGE_DISPLAY_MODES).grid(
-        row=0, column=1, sticky="e", pady=ui((10, 0)))
+    tip(tk.OptionMenu(images, image_mode, *IMAGE_DISPLAY_MODES),
+        "image_display_mode").grid(row=0, column=1, sticky="e", pady=ui((10, 0)))
     tk.Label(images, text="Max image size (0 = no limit)", font=THEME_FONT,
              bg=THEME_BG, fg=THEME_FG_DIM).grid(
         row=1, column=0, columnspan=2, sticky="w", pady=ui((8, 0)))
-    tk.Label(images, text="Width", font=THEME_FONT_SMALL,
-             bg=THEME_BG, fg=THEME_FG).grid(row=2, column=0, sticky="w")
-    tk.Entry(images, textvariable=max_width, width=8).grid(
-        row=2, column=1, sticky="e")
-    tk.Label(images, text="Height", font=THEME_FONT_SMALL,
-             bg=THEME_BG, fg=THEME_FG).grid(
+    tip(tk.Label(images, text="Width", font=THEME_FONT_SMALL,
+                 bg=THEME_BG, fg=THEME_FG), "max_image_width").grid(
+        row=2, column=0, sticky="w")
+    tip(tk.Entry(images, textvariable=max_width, width=8),
+        "max_image_width").grid(row=2, column=1, sticky="e")
+    tip(tk.Label(images, text="Height", font=THEME_FONT_SMALL,
+                 bg=THEME_BG, fg=THEME_FG), "max_image_height").grid(
         row=3, column=0, sticky="w", pady=ui((2, 0)))
-    tk.Entry(images, textvariable=max_height, width=8).grid(
-        row=3, column=1, sticky="e", pady=ui((2, 0)))
+    tip(tk.Entry(images, textvariable=max_height, width=8),
+        "max_image_height").grid(row=3, column=1, sticky="e", pady=ui((2, 0)))
 
-    tk.Label(images, text="Font scale", font=THEME_FONT,
-             bg=THEME_BG, fg=THEME_FG_DIM).grid(
+    tip(tk.Label(images, text="Font scale", font=THEME_FONT,
+                 bg=THEME_BG, fg=THEME_FG_DIM), "font_scale").grid(
         row=4, column=0, sticky="w", pady=ui((10, 0)))
-    tk.Label(images, textvariable=font_scale, font=THEME_FONT_SMALL,
-             bg=THEME_BG, fg=THEME_FG).grid(row=4, column=1, sticky="e")
-    tk.Scale(
+    tip(tk.Label(images, textvariable=font_scale, font=THEME_FONT_SMALL,
+                 bg=THEME_BG, fg=THEME_FG), "font_scale").grid(
+        row=4, column=1, sticky="e")
+    tip(tk.Scale(
         images, from_=50, to=200, resolution=5, orient="horizontal",
         variable=font_scale, bg=THEME_BG, fg=THEME_FG,
         highlightbackground=THEME_BG, troughcolor=THEME_BG, length=ui(260),
-    ).grid(row=5, column=0, columnspan=2, sticky="ew", pady=ui((4, 0)))
+    ), "font_scale").grid(
+        row=5, column=0, columnspan=2, sticky="ew", pady=ui((4, 0)))
 
-    tk.Checkbutton(advanced, text="Enable debug log file",
-                   variable=debug_log, **check_options,
-                   ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=ui(4))
-    tk.Checkbutton(advanced, text="Increase direction counter in normal/reverse modes",
-                   variable=count_all_directions, **check_options,
-                   ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=ui(4))
+    tip(tk.Checkbutton(advanced, text="Enable debug log file",
+                       variable=debug_log, **check_options),
+        "enable_debug_log").grid(
+        row=0, column=0, columnspan=2, sticky="ew", pady=ui(4))
+    tip(tk.Checkbutton(
+        advanced, text="Increase direction counter in normal/reverse modes",
+        variable=count_all_directions, **check_options),
+        "count_all_directions").grid(
+        row=1, column=0, columnspan=2, sticky="ew", pady=ui(4))
 
     for body, canvas in (
         (exercise, exercise_canvas), (window_tab, window_canvas),
@@ -347,14 +372,14 @@ def show_preferences(parent):
         save_preferences(preferences)
         window.destroy()
 
-    tk.Button(actions, text="Cancel", command=window.destroy, width=10).pack(
-        side="right", padx=ui((8, 0)))
-    tk.Button(actions, text="Reset", command=reset, width=10).pack(
-        side="right", padx=ui((8, 0)))
-    tk.Button(
+    tip(tk.Button(actions, text="Cancel", command=window.destroy, width=10),
+        "preferences_cancel").pack(side="right", padx=ui((8, 0)))
+    tip(tk.Button(actions, text="Reset", command=reset, width=10),
+        "preferences_reset").pack(side="right", padx=ui((8, 0)))
+    tip(tk.Button(
         actions, text="Save", command=save, width=10,
         bg=THEME_ACCENT, fg=THEME_BG, activebackground=THEME_ACCENT,
-    ).pack(side="right")
+    ), "preferences_save").pack(side="right")
 
     width = min(ui(520), parent.winfo_screenwidth() - ui(40))
     height = min(ui(560), parent.winfo_screenheight() - ui(80))

@@ -42,19 +42,20 @@ SETTING_TOOLTIPS = {
     "sub_after": "Show the sub only after the answer is revealed.",
     "sub_never": "Hide this sub.",
     "global_delay": (
-        "Time to wait before each card appears. Accepts 30s, 1m30s, 1h5m30s, "
-        "or plain 30 (= 30 s). 0/empty = immediate. Jitter is applied to this delay."
+        "Time to wait before each batch, including the first. Accepts 30s, "
+        "1m30s, 1h5m30s, or plain 30 (= 30 s). 0/empty = immediate. Jitter "
+        "is applied to this delay."
     ),
     "global_session": (
-        "How many batches to play. Empty = unlimited. The session ends after "
-        "this many batches, not cards."
+        "How many batches to play. Empty = unlimited. A batch contains Cards "
+        "in batch cards, and the session stops after that many cards are shown."
     ),
     "global_batch": (
         "Cards shown per batch. Empty = 1. The delay is applied before each "
         "batch, including the first."
     ),
     "global_jitter": (
-        "Randomness applied only to the pre-card delay. 50% of 1m gives 30–90s. "
+        "Randomness applied only to the pre-batch delay. 50% of 1m gives 30–90s. "
         "0/empty = exact delay."
     ),
     "loaded_categories": (
@@ -80,6 +81,107 @@ SETTING_TOOLTIPS = {
         "several at once; missing parts produce warnings."
     ),
 }
+
+
+APP_SETTING_TOOLTIPS = {
+    "exercise_opacity": (
+        "Opacity of exercise windows, from 10% to 100%. Lower values let you "
+        "see other windows through the card."
+    ),
+    "show_skip_quit": (
+        "Show the Skip and Quit buttons on exercise windows. Keyboard shortcuts "
+        "keep working when the buttons are hidden."
+    ),
+    "restrict_exercise_close": (
+        "Ignore Quit, Escape, and system window-close requests during an "
+        "exercise. The session can then only end by finishing the deck."
+    ),
+    "confirm_quit_reset": (
+        "Ask for confirmation before quitting the main window, resetting the "
+        "main window, or leaving an exercise early."
+    ),
+    "show_time_passed": (
+        "Show time passed on the current card in the exercise status row. It "
+        "resets for each new card."
+    ),
+    "show_cards_in_batch": (
+        "Show how many cards have been shown in the current batch."
+    ),
+    "show_session_batches": (
+        "Show the current batch number and the total number of batches."
+    ),
+    "status_position": "Place the exercise status row above or below the card.",
+    "remember_geometry": "Save window sizes and restore them at startup.",
+    "remember_position": (
+        "Save window positions and monitor placement, then restore them at startup."
+    ),
+    "exercise_always_on_top": (
+        "Keep exercise windows above other windows while a session is running."
+    ),
+    "auto_load_last_deck": "Open the most recently loaded deck when DeskCard starts.",
+    "last_deck": "The deck that Auto-load last deck will try to open.",
+    "auto_load_last_settings": (
+        "Apply the most recently loaded settings file when DeskCard starts."
+    ),
+    "last_settings": "The settings file that Auto-load last settings will try to apply.",
+    "default_global_settings.delay": (
+        "Initial Delay field value at startup and after Reset. The delay runs "
+        "before each batch, including the first."
+    ),
+    "default_global_settings.session": (
+        "Initial Batches in session value at startup and after Reset. Empty "
+        "means unlimited."
+    ),
+    "default_global_settings.batch": (
+        "Initial Cards in batch value at startup and after Reset."
+    ),
+    "default_global_settings.jitter": (
+        "Initial Delay Jitter value at startup and after Reset. 0 keeps the "
+        "delay exact."
+    ),
+    "recent_decks": (
+        "How many decks are remembered for the Recent decks menu. Selecting "
+        "one there loads that deck."
+    ),
+    "clear_remembered_files": (
+        "Forget the remembered deck, settings file, and recent decks. The "
+        "files themselves are not deleted."
+    ),
+    "image_display_mode": (
+        "How images fit their card slot: fit keeps the aspect ratio, stretch "
+        "fills the slot, original keeps the native size and centre-crops if needed."
+    ),
+    "max_image_width": (
+        "Maximum width in pixels for an image slot. 0 means no limit; images "
+        "are never enlarged to reach the cap."
+    ),
+    "max_image_height": (
+        "Maximum height in pixels for an image slot. 0 means no limit; images "
+        "are never enlarged to reach the cap."
+    ),
+    "font_scale": (
+        "Scale fonts and UI spacing from 50% to 200%. Changes apply to the "
+        "main window immediately and to new exercise windows."
+    ),
+    "enable_debug_log": (
+        "Append load, save, and session diagnostics to debug.log beside the "
+        "preferences file. The log rotates after about 1 MB."
+    ),
+    "count_all_directions": (
+        "Count a card's normal or reverse direction even when that direction "
+        "is forced by settings, not only in Random mode."
+    ),
+    "preferences_save": "Save these preferences and close the dialog.",
+    "preferences_cancel": "Close the dialog without saving changes.",
+    "preferences_reset": (
+        "Restore every field in this dialog to its default. Press Save to persist."
+    ),
+}
+
+for _grade in ("impossible", "hard", "medium", "light", "easy"):
+    APP_SETTING_TOOLTIPS[f"score_deltas.{_grade}"] = (
+        f"Score change when you grade a card {_grade.title()}."
+    )
 
 
 def tooltip_for_block(block):
