@@ -114,7 +114,8 @@ class Application:
         self.attempt = 1
         self._freeze_message = ""
         self._retry_feedback = False
-        self._on_result = on_result or (lambda _correct: self._continue())
+        self._standalone = on_result is None
+        self._on_result = on_result or (lambda _correct: None)
         self._on_skip = on_skip or (lambda: self._continue())
         self._on_quit = on_quit or (lambda: self.root.destroy())
         self._window_width = 0
@@ -158,15 +159,17 @@ class Application:
     def _refresh_entry(self):
         """Restore the entry panel for another attempt."""
         if self._entry is not None:
-            self._entry.delete(0, tk.END)
             self._entry.configure(state="normal")
+            self._entry.delete(0, tk.END)
         if not self.locked:
             self.root.after_idle(self.focus_input)
 
     def _enter(self):
-        if self.locked:
+        if self.locked and not (self._standalone and self.revealed):
             return
-        if self._current_text():
+        if self.revealed:
+            self._continue()
+        elif self._current_text():
             self._confirm()
 
     def _confirm(self):
@@ -183,16 +186,16 @@ class Application:
     def _continue(self):
         """Standalone-mode advance; the session runner supplies its own flow."""
         self._reset()
-        self._sync_state()
         self._refresh_entry()
+        self._sync_state()
 
     def retry(self, attempt=None):
         """Show the same card again for another attempt."""
         if attempt is not None:
             self.attempt = attempt
         self._reset()
-        self._sync_state()
         self._refresh_entry()
+        self._sync_state()
 
     def show_retry(self):
         """Show a brief wrong-answer sheet without giving away the answer."""
@@ -280,17 +283,26 @@ class Application:
     def _on_configure(self, event):
         if event.widget is not self.root:
             return
-        if abs(event.width - self._window_width) < 8:
+        if event.width == self._window_width:
             return
         self._window_width = event.width
         if self._resize_job is not None:
             self.root.after_cancel(self._resize_job)
         self._resize_job = self.root.after(120, self._sync_wrap)
 
+    def _prompt_wraplength(self):
+        return max(ui(400), min(ui(900), self._window_width - ui(220)))
+
+    def _warning_wraplength(self):
+        return max(ui(240), self._window_width - ui(160))
+
+    def _result_wraplength(self):
+        return max(ui(300), self._window_width - ui(200))
+
     def _sync_wrap(self):
         """Re-wrap existing text after a resize; no widget teardown."""
         self._resize_job = None
-        wrap = max(400, min(900, self._window_width - 220))
+        wrap = self._prompt_wraplength()
         for label in self._prompt_wrap_labels:
             if label.winfo_exists():
                 label.configure(wraplength=wrap)
@@ -391,7 +403,7 @@ class Application:
     def _sync_warning(self):
         if self._footer is None:
             return
-        wrap = max(240, self._window_width - 160)
+        wrap = self._warning_wraplength()
         if not self.warnings:
             if self._warning_label is not None:
                 self._warning_label.pack_forget()
@@ -456,7 +468,7 @@ class Application:
         panel = tk.Frame(parent, bg=PANEL_BG)
         inner = tk.Frame(panel, bg=PANEL_BG)
         inner.pack(fill="x", padx=ui(28), pady=ui(18))
-        wrap = max(400, min(900, self._window_width - 220))
+        wrap = self._prompt_wraplength()
         meta = "   ·   ".join(
             part for part in (data.category.upper(), data.direction.upper())
             if part)
@@ -575,7 +587,7 @@ class Application:
             bg=SUCCESS_BG if correct else WRONG_BG,
             fg=SUCCESS_FG if correct else WRONG_FG,
         )
-        wrap = max(300, self._window_width - 200)
+        wrap = self._result_wraplength()
         self._answer_label.configure(
             text=self.card.answer, wraplength=wrap,
             fg=SUCCESS_BORDER if correct else WRONG_FG)

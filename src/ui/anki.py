@@ -221,7 +221,7 @@ class Application:
     def _on_configure(self, event):
         if event.widget is not self.root:
             return
-        if abs(event.width - self._window_width) < 8:
+        if event.width == self._window_width:
             return
         self._window_width = event.width
         if self._resize_job is not None:
@@ -236,7 +236,7 @@ class Application:
             if label.winfo_exists():
                 label.configure(wraplength=wrap)
         if self._warning_label is not None and self._warning_label.winfo_exists():
-            self._warning_label.configure(wraplength=max(240, wrap - 260))
+            self._warning_label.configure(wraplength=max(ui(240), wrap - ui(260)))
 
     def _on_destroy(self, event):
         if event.widget is self.root and self._resize_job is not None:
@@ -332,7 +332,7 @@ class Application:
     def _sync_warning(self):
         if self._footer is None:
             return
-        wrap = max(240, self._wraplength() - 260)
+        wrap = max(ui(240), self._wraplength() - ui(260))
         if not self.warnings:
             if self._warning_label is not None:
                 self._warning_label.pack_forget()
@@ -369,7 +369,7 @@ class Application:
         self._quit_button.pack(side="left")
 
     def _wraplength(self):
-        return max(320, min(680, self._window_width - 120))
+        return max(ui(320), min(ui(680), self._window_width - ui(120)))
 
     def _face_block(self, parent, side, wrap, is_front=False):
         """Render one side: text, sub, audio, and an optional image slot."""

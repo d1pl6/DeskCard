@@ -426,7 +426,7 @@ class Application:
     def _on_configure(self, event):
         if event.widget is not self.root:
             return
-        if abs(event.width - self._window_width) < 8:
+        if event.width == self._window_width:
             return
         self._window_width = event.width
         if self._resize_job is not None:
@@ -550,7 +550,7 @@ class Application:
     def _sync_warning(self):
         if self._footer is None:
             return
-        wrap = max(240, self._window_width - 160)
+        wrap = max(ui(240), self._window_width - ui(160))
         if not self.warnings:
             if self._warning_label is not None:
                 self._warning_label.pack_forget()
@@ -734,9 +734,9 @@ class Application:
         return self.left_order[left] == self.right_order[right]
 
     def _wraplength(self):
-        available = self._window_width - 56 - 36 - 40
+        available = self._window_width - ui(56) - ui(36) - ui(40)
         column = available // 2
-        return max(180, min(420, int(column - 70)))
+        return max(ui(180), min(ui(420), int(column - ui(70))))
 
     def _build_footer(self):
         self._footer = tk.Frame(self.root, bg=THEME_BG)

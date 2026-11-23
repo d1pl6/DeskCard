@@ -164,6 +164,11 @@ class ScrollFrame(tk.Frame):
             self._bar_shown = True
         self.bar.set(first, last)
 
+    def restore_fraction(self, fraction):
+        """Apply a saved scroll position after the next layout pass."""
+        self._restore = fraction
+        self._schedule()
+
     def _schedule(self):
         if self._pending:
             return
@@ -326,7 +331,9 @@ class Application:
         self.reveal_correct = None
         self.locked = False
         self._freeze_message = ""
-        self._on_result = on_result or (lambda _correct: self._continue())
+        self._retry_feedback = False
+        self._standalone = on_result is None
+        self._on_result = on_result or (lambda _correct: None)
         self._on_skip = on_skip or self._continue
         self._on_quit = on_quit or (lambda: self.root.destroy())
         self._choice_scroll = None
@@ -370,6 +377,7 @@ class Application:
         self.reveal_correct = None
         self.locked = False
         self._freeze_message = ""
+        self._retry_feedback = False
         self._choice_fraction = 0.0
         self.prompt_plays = 0
         self._prompt_audio_button = None
@@ -388,7 +396,7 @@ class Application:
             self._pick(index)
 
     def _enter(self):
-        if self.locked:
+        if self.locked and not (self._standalone and self.revealed):
             return
         if self.revealed:
             self._continue()
@@ -399,30 +407,43 @@ class Application:
         if self.locked or self.selected is None:
             return
         self.reveal_correct = self.selected == self.card.correct
+        self._retry_feedback = False
         self.revealed = True
         self.locked = True
         self._sync_state()
         self._on_result(self.reveal_correct)
 
-    def _continue(self):
-        """Standalone-mode advance; the session runner supplies its own flow."""
+    def _restore_choice_view(self):
+        """Apply the saved scroll fraction to the existing choice list."""
+        fraction = self._choice_fraction
         self._reset()
         self._sync_state()
+        self._choice_fraction = fraction
+        if self._choice_scroll is not None:
+            self._choice_scroll.restore_fraction(fraction)
+
+    def _continue(self):
+        """Standalone-mode advance; the session runner supplies its own flow."""
+        self._restore_choice_view()
 
     def show_retry(self):
-        """Keep the revealed answer visible during the retry feedback delay."""
+        """Give brief wrong-answer feedback without giving away the answer."""
+        self._clear_answer_stage()
+        self.revealed = True
+        self.reveal_correct = False
+        self._retry_feedback = True
         self.locked = True
         self._sync_state()
 
     def retry(self):
         """Show the same card again for another attempt."""
-        self._reset()
-        self._sync_state()
+        self._restore_choice_view()
 
     def reveal_timeout(self):
         """Show the correct answer when the answer timer expires."""
         self.selected = None
         self.reveal_correct = False
+        self._retry_feedback = False
         self.revealed = True
         self.locked = True
         self._sync_state()
@@ -486,7 +507,7 @@ class Application:
         """Re-wrap text when the window is resized; debounced to avoid churn."""
         if event.widget is not self.root:
             return
-        if abs(event.width - self._window_width) < 8:
+        if event.width == self._window_width:
             return
         self._window_width = event.width
         if self._resize_job is not None:
@@ -496,7 +517,7 @@ class Application:
     def _sync_wrap(self):
         """Re-wrap existing text after a resize; no widget teardown."""
         self._resize_job = None
-        wrap = max(400, min(900, self._window_width - 220))
+        wrap = max(ui(400), min(ui(900), self._window_width - ui(220)))
         for label in self._prompt_wrap_labels:
             if label.winfo_exists():
                 label.configure(wraplength=wrap)
@@ -565,6 +586,8 @@ class Application:
     def _hint_text(self):
         if self._freeze_message:
             return self._freeze_message
+        if self._retry_feedback:
+            return "Not quite — try again"
         if self.revealed:
             return "Enter to continue"
         if self.selected is None:
@@ -600,17 +623,20 @@ class Application:
                 self._answer_holder.pack(fill="both", expand=True)
             else:
                 self._answer_holder.pack_forget()
-                if self._answer_panel is not None:
-                    self._answer_panel.destroy()
-                    self._answer_panel = None
-                    self._answer_wrap_labels = []
-                    self._answer_audio_button = None
+                self._clear_answer_stage()
         self._sync_warning()
+
+    def _clear_answer_stage(self):
+        if self._answer_panel is not None:
+            self._answer_panel.destroy()
+            self._answer_panel = None
+            self._answer_wrap_labels = []
+            self._answer_audio_button = None
 
     def _sync_warning(self):
         if self._footer is None:
             return
-        wrap = max(240, self._window_width - 160)
+        wrap = max(ui(240), self._window_width - ui(160))
         if not self.warnings:
             if self._warning_label is not None:
                 self._warning_label.pack_forget()
@@ -675,7 +701,7 @@ class Application:
         panel = tk.Frame(parent, bg=PANEL_BG)
         inner = tk.Frame(panel, bg=PANEL_BG)
         inner.pack(fill="x", padx=ui(28), pady=ui(18))
-        wrap = max(400, min(900, self._window_width - 220))
+        wrap = max(ui(400), min(ui(900), self._window_width - ui(220)))
 
         meta = "   ·   ".join(
             part for part in (data.category.upper(), data.direction.upper())
@@ -720,9 +746,9 @@ class Application:
 
     def _choice_wraplength(self, columns):
         """Text width for one choice card, measured from the window size."""
-        available = self._window_width - 78  # body padding + scroll gutter
-        column_width = (available - (columns - 1) * 12) / columns
-        return max(220, min(760, int(column_width - 70)))
+        available = self._window_width - ui(78)  # body padding + scroll gutter
+        column_width = (available - (columns - 1) * ui(12)) / columns
+        return max(ui(220), min(ui(760), int(column_width - ui(70))))
 
     def _build_choice_stage(self, stage):
         grid_holder = ScrollFrame(
@@ -777,12 +803,12 @@ class Application:
 
     def _answer_wraplength(self, has_image):
         """Text column width, leaving room for the image side when present."""
-        available = self._window_width - 56 - 40 - 110 - 12
-        available -= 40  # answer audio button
+        available = self._window_width - ui(56) - ui(40) - ui(110) - ui(12)
+        available -= ui(40)  # answer audio button
         if has_image:
-            available -= 204  # image slot + gap
-        available -= 16  # font-metric safety margin
-        return max(240, min(560, int(available)))
+            available -= ui(204)  # image slot + gap
+        available -= ui(16)  # font-metric safety margin
+        return max(ui(240), min(ui(560), int(available)))
 
     def _chosen_block(self, parent, wrap, anchor="w"):
         """The wrong pick, laid out vertically so it can never widen the sheet."""
@@ -801,6 +827,11 @@ class Application:
 
     def _answer_body(self, parent):
         data = self.card
+        if self._retry_feedback:
+            tk.Label(parent, text="TRY AGAIN", bg=WRONG_BG, fg=WRONG_FG,
+                     font=FONT_CHIP, padx=ui(12), pady=ui(4)).pack(anchor="center")
+            self._chosen_block(parent, self._answer_wraplength(False), anchor="center")
+            return
         has_image = data.has_image
         has_text = bool(data.answer or data.answer_sub)
         wrap = self._answer_wraplength(has_image)
