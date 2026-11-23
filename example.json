@@ -1,0 +1,68 @@
+{
+  "greetings": {
+    "enabled": true,
+    "$version": 1,
+    "1": {
+      "front": {
+        "text": "Hello",
+        "sub": "/hɛˈloʊ/",
+        "audio": "desks/audio/en/greetings/hello.mp3"
+      },
+      "back": {
+        "text": "Hola",
+        "sub": "ˈoʊlɑː",
+        "audio": "desks/audio/es/greetings/hola.mp3",
+        "image": "desks/image/greetings/hello.png"
+      },
+      "last-reviewed": "2026-11-18T03:50:24Z",
+      "easy": 21,
+      "light": 0,
+      "medium": 0,
+      "hard": 0,
+      "impossible": 0,
+      "score": 100,
+      "normal": 5,
+      "reverse": 5
+    },
+    "2": {
+      "front": {
+        "text": "Adiós",
+        "audio": "adios.mp3"
+      },
+      "back": {
+        "text": "Goodbye",
+        "image": "image.jpeg"
+      },
+      "last-reviewed": "2026-11-18T03:50:24Z",
+      "easy": 4,
+      "light": 0,
+      "medium": 0,
+      "hard": 0,
+      "impossible": 4,
+      "score": 20,
+      "normal": 1,
+      "reverse": 2
+    }
+  },
+  "new category": {
+    "enabled": true,
+    "$version": 666,
+    "category": {
+      "audio only": {
+        "audio": "one.mp3"
+      },
+      "text only": {
+        "text": "2 text"
+      },
+      "last-reviewed": "2026-10-29T12:38:19Z",
+      "easy": 2,
+      "light": 0,
+      "medium": 0,
+      "hard": 0,
+      "impossible": 1,
+      "score": 15,
+      "normal": 0,
+      "reverse": 0
+    }
+  }
+}

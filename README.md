@@ -25,11 +25,29 @@ Install optional dependencies. `pygame-ce` for audio, `pillow` for images:
 pip install pygame-ce pillow
 ```
 
+Install or DeskCard on your system:
+- CLI:
+    ```sh
+    pip install .
+    ```
+- App:
+    ```
+    # ~/.local/share/applications/deskcard.desktop
+    [Desktop Entry]
+    Type=Application
+    Name=DeskCard
+    Exec="/usr/bin/<python*>" "/path/to/app.py"
+    # Or Exec="deskcard"
+    Terminal=false
+    ```
+
 ## Usage
 Use `python tools/validator.py [all|text|sub|audio|image|other] FILE` to check a deck for problems. See `python tools/validator.py --help` for details.
 
 ```sh
+# Launch
 python -m app
+python app.py
 ```
 
 ## Exercises
