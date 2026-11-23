@@ -1,9 +1,6 @@
 DeskCard - flashcard app that overlays on top of your screen until you finish the exercise
 
-<img width="300" height="250" alt="showcase" src="https://github.com/d1pl6/DeskCard/blob/main/showcase/02_launcher.png" />
-<img width="300" height="250" alt="showcase" src="https://github.com/d1pl6/DeskCard/blob/main/showcase/05_anki.png" />
-<img width="300" height="250" alt="showcase" src="https://github.com/d1pl6/DeskCard/blob/main/showcase/08_choose.png" />
-<img width="300" height="250" alt="showcase" src="https://github.com/d1pl6/DeskCard/blob/main/showcase/12_write.png" />
+<img width="300" height="250" alt="showcase" src="https://github.com/d1pl6/DeskCard/blob/main/showcase/02_launcher.png" /><img width="300" height="250" alt="showcase" src="https://github.com/d1pl6/DeskCard/blob/main/showcase/05_anki.png" /><img width="300" height="250" alt="showcase" src="https://github.com/d1pl6/DeskCard/blob/main/showcase/08_choose.png" /><img width="300" height="250" alt="showcase" src="https://github.com/d1pl6/DeskCard/blob/main/showcase/12_write.png" />
 
 ## Table of Contents
 - [Install](#install)
