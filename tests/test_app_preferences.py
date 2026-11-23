@@ -263,9 +263,14 @@ class AppPreferencesTests(unittest.TestCase):
                 self.assertIn("session batches: 2/3", texts)
                 anchor = getattr(app, anchor_name)
                 slaves = window.pack_slaves()
-                self.assertLess(
-                    slaves.index(runner._status_frame), slaves.index(anchor)
-                )
+                if position == "top":
+                    self.assertLess(
+                        slaves.index(runner._status_frame), slaves.index(anchor)
+                    )
+                else:
+                    self.assertGreater(
+                        slaves.index(runner._status_frame), slaves.index(anchor)
+                    )
                 runner._clear_status()
                 window.destroy()
         finally:

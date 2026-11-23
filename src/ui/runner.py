@@ -435,7 +435,9 @@ class SessionRunner:
         anchor = getattr(self.app, "_header" if position == "top" else "_footer", None)
         options = dict(fill="x")
         if anchor is not None:
-            options["before"] = anchor
+            # For side="bottom", packing after the footer places the status
+            # just above it; "before" would push it below the footer.
+            options["after" if position != "top" else "before"] = anchor
         frame.pack(side="top" if position == "top" else "bottom", **options)
 
         self._status_frame = frame

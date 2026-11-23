@@ -44,5 +44,6 @@ Content modes select and filter at the same time:
   larger value never enlarges it.
 - `PhotoImage` objects are cached by path, size, display mode and cap, so
   repeated cards do not reload the file, and Tk never garbage-collects an image
-  still shown in a label. Changing the image preferences clears the cache.
+  still shown in a label. The cache is a bounded LRU (32 entries); changing the
+  image preferences clears it.
 - A file that cannot be decoded, or no Pillow at all, shows a dark placeholder.

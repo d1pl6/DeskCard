@@ -409,9 +409,22 @@ class Application:
         self._reset()
         self._sync_state()
 
+    def show_retry(self):
+        """Keep the revealed answer visible during the retry feedback delay."""
+        self.locked = True
+        self._sync_state()
+
     def retry(self):
         """Show the same card again for another attempt."""
         self._reset()
+        self._sync_state()
+
+    def reveal_timeout(self):
+        """Show the correct answer when the answer timer expires."""
+        self.selected = None
+        self.reveal_correct = False
+        self.revealed = True
+        self.locked = True
         self._sync_state()
 
     def on_skip(self):
@@ -423,7 +436,6 @@ class Application:
     def on_quit(self, event=None):
         if self.locked:
             return
-        self.locked = True
         self._on_quit()
 
     def freeze(self, message):
@@ -553,6 +565,8 @@ class Application:
     def _hint_text(self):
         if self._freeze_message:
             return self._freeze_message
+        if self.revealed:
+            return "Enter to continue"
         if self.selected is None:
             return "1–9, 0 pick a choice"
         return "Enter confirms · pick another to change"
@@ -772,6 +786,8 @@ class Application:
 
     def _chosen_block(self, parent, wrap, anchor="w"):
         """The wrong pick, laid out vertically so it can never widen the sheet."""
+        if self.selected is None:
+            return
         picked = self.card.choices[self.selected]
         block = tk.Frame(parent, bg=PANEL_BG)
         block.pack(anchor=anchor, pady=ui((8, 0)))
@@ -851,7 +867,7 @@ class Application:
             slot.pack(side="left", anchor="n",
                       padx=(24 if has_text else 0, 0))
 
-        if not self.reveal_correct:
+        if not self.reveal_correct and self.selected is not None:
             if left is not None:
                 self._chosen_block(left, wrap)
             else:

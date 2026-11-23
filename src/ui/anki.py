@@ -273,6 +273,7 @@ class Application:
         self._quit_button = None
         self._show_button = None
         self._reveal_area = None
+        self._grade_frame = None
         self._grade_buttons = []
         self._hint_label = None
         self._warning_label = None
@@ -311,7 +312,14 @@ class Application:
             if self.revealed:
                 self._show_button.pack_forget()
             else:
-                self._show_button.pack(pady=ui((12, 0)))
+                self._show_button.pack(side="bottom", pady=ui((12, 0)))
+        if self._grade_frame is not None:
+            if self.revealed:
+                # The grade row takes the bottom slot; the revealed answer
+                # stays in place in the body.
+                self._grade_frame.pack(fill="x", side="bottom", pady=ui((8, 0)))
+            else:
+                self._grade_frame.pack_forget()
         if self._front_after_sub_label is not None:
             if self.revealed:
                 self._front_after_sub_label.pack(anchor="center", pady=ui((4, 0)))
@@ -421,14 +429,15 @@ class Application:
         self._reveal_area = tk.Frame(body, bg=THEME_BG)
         back = self._face_block(self._reveal_area, self.card.back, wrap)
         back.pack(fill="x", pady=ui((6, 8)))
-        grade_frame = tk.Frame(self._reveal_area, bg=THEME_BG)
-        grade_frame.pack(fill="x", side="bottom", pady=ui((8, 0)))
+        # The grade row is a sibling of the answer, not part of it, so only
+        # the buttons move to the bottom when the answer is revealed.
+        self._grade_frame = tk.Frame(body, bg=THEME_BG)
         for column in range(len(self.grade_rows)):
-            grade_frame.columnconfigure(column, weight=1, uniform="grade")
+            self._grade_frame.columnconfigure(column, weight=1, uniform="grade")
         for column, (label, delta, bg, hover) in enumerate(self.grade_rows):
             sign = "+" if delta > 0 else ""
             button = flat_button(
-                grade_frame, f"{label}\n{sign}{delta}",
+                self._grade_frame, f"{label}\n{sign}{delta}",
                 command=lambda grade=label: self._grade(grade),
                 kind="ghost", small=False,
                 bg=bg, activebackground=hover, fg="#ffffff",

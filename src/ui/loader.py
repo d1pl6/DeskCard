@@ -1,6 +1,7 @@
 import json
 import os
 import tkinter as tk
+from copy import deepcopy
 from pathlib import Path
 from tkinter import ttk
 from tkinter import filedialog
@@ -388,9 +389,14 @@ WRITE_SECTIONS = [
 
 
 class Application:
-    def __init__(self, root):
+    def __init__(self, root, preferences=None, preferences_path=None, auto_load=True):
         self.root = root
-        self.preferences = load_preferences()
+        self.preferences_path = preferences_path
+        self._external_preferences = preferences is not None
+        self.preferences = (
+            deepcopy(preferences) if preferences is not None
+            else load_preferences(preferences_path)
+        )
         configure_debug_log(self.preferences.get("enable_debug_log", False))
         log_debug("DeskCard started")
         apply_font_scale(root, self.preferences["font_scale"])
@@ -587,7 +593,8 @@ class Application:
 
         self._bind_keys()
         root.protocol("WM_DELETE_WINDOW", self.on_footer_quit)
-        self._auto_load_last_files()
+        if auto_load:
+            self._auto_load_last_files()
         self._refresh_recent_decks()
 
     def _apply_image_preferences(self):
@@ -598,10 +605,16 @@ class Application:
             self.preferences.get("max_image_height", 0),
         )
 
+    def _save_preferences(self):
+        """Persist preferences, or keep injected ones in memory when pathless."""
+        if self._external_preferences and self.preferences_path is None:
+            return
+        save_preferences(self.preferences, self.preferences_path)
+
     def _remember_file(self, key, path):
         """Remember a successfully loaded/saved file for startup auto-load."""
         self.preferences[key] = str(path)
-        save_preferences(self.preferences)
+        self._save_preferences()
 
     def _refresh_recent_decks(self):
         """Show the remembered decks in the main window."""
@@ -672,7 +685,7 @@ class Application:
     def _save_window_state(self):
         """Persist the main window state if the preferences ask for it."""
         remember_window_preferences(self.root, self.preferences, "main")
-        save_preferences(self.preferences)
+        self._save_preferences()
 
     def _bind_keys(self):
         """Ctrl+1..4 switch tabs; Enter or a click outside the field loads a typed path."""
@@ -804,7 +817,7 @@ class Application:
         self._reset_globals()
         self._clear_deck()
         clear_remembered_files(self.preferences)
-        save_preferences(self.preferences)
+        self._save_preferences()
         self._refresh_recent_decks()
 
     def _default_globals(self):
@@ -831,8 +844,10 @@ class Application:
             entry.insert(0, value)
 
     def on_header_settings(self):
-        show_preferences(self.root)
-        self.preferences = load_preferences()
+        show_preferences(
+            self.root, self.preferences, self.preferences_path,
+            persist=not (self._external_preferences and self.preferences_path is None),
+        )
         configure_debug_log(self.preferences.get("enable_debug_log", False))
         apply_font_scale(self.root, self.preferences["font_scale"])
         self._apply_image_preferences()
@@ -904,7 +919,7 @@ class Application:
         self._remember_file("last_deck", config.path)
         if not quiet:
             remember_recent_deck(self.preferences, config.path)
-            save_preferences(self.preferences)
+            self._save_preferences()
             self._refresh_recent_decks()
         log_debug(f"deck loaded: {config.path}")
 

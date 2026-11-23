@@ -7,6 +7,7 @@ label is still displaying them.
 
 import os
 import tkinter as tk
+from collections import OrderedDict
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
@@ -29,7 +30,8 @@ except ImportError:  # pragma: no cover - exercised only on minimal installs
 
 _AUDIO_INITIALIZED = False
 _SOUND = None
-_IMAGE_CACHE = {}
+_IMAGE_CACHE_LIMIT = 32
+_IMAGE_CACHE = OrderedDict()
 _IMAGE_MODE = "fit"
 _IMAGE_MAX = (0, 0)
 
@@ -120,6 +122,7 @@ def load_image(path, max_size=(240, 150)):
     size = _effective_size(max_size)
     key = (str(path), size, _IMAGE_MODE, _IMAGE_MAX)
     if key in _IMAGE_CACHE:
+        _IMAGE_CACHE.move_to_end(key)
         return _IMAGE_CACHE[key]
     try:
         with Image.open(path) as source:
@@ -145,6 +148,8 @@ def load_image(path, max_size=(240, 150)):
     except (OSError, ValueError):
         return None
     _IMAGE_CACHE[key] = photo
+    while len(_IMAGE_CACHE) > _IMAGE_CACHE_LIMIT:
+        _IMAGE_CACHE.popitem(last=False)
     return photo
 
 

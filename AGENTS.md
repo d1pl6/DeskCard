@@ -16,9 +16,9 @@ DeskCard is a flashcard app for desktops built with tkinter.
 
 ## Testing
 
-- Run headless tests for non-UI functions only; no real Tk windows or display server
+- Run headless tests for non-UI functions; keep real Tk windows out of tests where possible. Tk-dependent tests are skipped without `DISPLAY`
 - Try to reproduce described issue before looking inside the code
-- Use `python -m pytest` from the repository root. Deck-loading tests use `example.json` (see `docs/TESTING.md`), not `unsorted.json`
+- Use `python -m pytest` from the repository root. Deck-loading tests use `example.json` (see `docs/TESTING.md`), not `unsorted.json`; loader tests inject preferences so they do not read the machine's saved settings
 
 ## Comments
 

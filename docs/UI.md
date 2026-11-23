@@ -4,6 +4,8 @@
 - Do put grouped controls in their own frame so long labels elsewhere cannot stretch their columns
 - Do disable media choices when the loaded deck reports errors for that medium or its backend is unavailable, and explain the reason in the tooltip.
 - Do give every app-preferences control a tooltip that explains what it changes.
+- Do anchor primary action buttons at the bottom of the exercise body, above the hint/status row. In an expanding body, packing the button after the card leaves it floating under the card rather than at the bottom.
+- Do keep revealed content in its own frame at its original position when a later action row moves to the bottom. Only the actions relocate; the answer stays where the user read it.
 - Do set an exercise window's opacity after it is mapped. A `Toplevel` child of the withdrawn main window silently ignores `-alpha` before that point; some window managers only honour it once the window is fully mapped.
 - Do end the main window title with a dot so title-based window rules (for example under Hyprland) can float it.
 - Do keep exercise windows non-transient while the main window is withdrawn: a transient child of a withdrawn window never becomes viewable.

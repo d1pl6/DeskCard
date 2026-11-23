@@ -131,6 +131,10 @@ class ChecksBlock(Block):
     def check(self, value, fail):
         if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             fail("must be a list of option names")
+        allowed = set(dict(self.spec["options"]))
+        unknown = [item for item in value if item not in allowed]
+        if unknown:
+            fail(f"has unknown option names: {', '.join(unknown)}")
         return value
 
 
@@ -170,6 +174,9 @@ class RadiosBlock(Block):
     def check(self, value, fail):
         if not isinstance(value, str):
             fail("must be a string")
+        allowed = dict(self.spec["options"])
+        if value not in allowed:
+            fail(f"must be one of: {', '.join(allowed)}")
         return value
 
 

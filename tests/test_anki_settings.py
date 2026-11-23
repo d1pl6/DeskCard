@@ -1,9 +1,11 @@
 import os
 import unittest
+from copy import deepcopy
 
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
+from src.app_preferences import DEFAULT_PREFERENCES  # noqa: E402
 from src.ui.anki import AnkiCard, CardSide  # noqa: E402
 from src.ui.anki import Application as AnkiApplication  # noqa: E402
 from src.ui.loader import Application as LoaderApplication  # noqa: E402
@@ -26,7 +28,8 @@ class AnkiSettingsTests(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            app = LoaderApplication(root)
+            app = LoaderApplication(
+                root, preferences=deepcopy(DEFAULT_PREFERENCES), auto_load=False)
             self.assertEqual(getattr(app, "anki_prompt_type_text_only_var").get(), 1)
             self.assertEqual(getattr(app, "anki_prompt_sub_var").get(), "always")
             self.assertEqual(getattr(app, "anki_answer_prompt_text_only_var").get(), 1)

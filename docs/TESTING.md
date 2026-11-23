@@ -2,10 +2,12 @@
 
 ## Rule
 
-Tests run headlessly: no real Tk windows and no display server. Test plain-Python
-functions (session engine, parsers, preference logic, pure UI helpers). Where a
-UI helper's logic must be exercised, use simple stand-ins for widgets. Reproduce
-a reported issue in a test before digging into the implementation.
+Tests are headless by default: no real Tk windows and no display server. Test
+plain-Python functions (session engine, parsers, preference logic, pure UI
+helpers). Where a UI helper's logic must be exercised, use simple stand-ins for
+widgets. A few Tk-dependent tests create real windows and are skipped unless
+`DISPLAY` is set; keep new tests headless where possible. Reproduce a reported
+issue in a test before digging into the implementation.
 
 ## Running
 
@@ -31,7 +33,9 @@ classes and can also be run with `python -m unittest discover -s tests`.
 - `tests/test_media.py` sets dummy audio environment variables before importing
   `src.ui.media`, so playback tests do not need an audio device.
 - Preferences, tooltip and Anki/Connect settings tests assert behavior through
-  plain data or lightweight stand-ins; they never open a Tk window.
+  plain data or lightweight stand-ins. Some of them create a real Tk window and
+  are skipped without `DISPLAY`; loader tests inject preferences so they never
+  depend on the machine's saved settings.
 
 ## What to assert
 

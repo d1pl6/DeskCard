@@ -38,6 +38,9 @@ A deck is a UTF-8 JSON file. The repository's `example.json` is a small sample.
 - A face without `text` stays valid but warns, because exercises that request
   text will skip that card. Audio/image content modes can still use it. Choose
   and Write always need text in the answer face.
+- Whitespace-only `text` also warns, so an accidental blank space is visible.
+  U+00A0 NO-BREAK SPACE is the marker for an intentional blank: it produces no
+  warning and exercises compare it as an ordinary space.
 - `audio` and `image` are paths. Relative paths resolve against the **deck
   file's directory**, not the working directory; absolute paths work too. A
   missing file or a directory produces a warning and counts as missing content.

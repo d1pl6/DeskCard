@@ -1,5 +1,7 @@
 """App preferences dialog."""
 
+from copy import deepcopy
+
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -31,9 +33,15 @@ except ImportError:  # started as a script from src/ui
     from helpers.tooltips import APP_SETTING_TOOLTIPS, add_tooltip
 
 
-def show_preferences(parent):
-    """Open the app preferences window and wait until it is closed."""
-    preferences = load_preferences()
+def show_preferences(parent, preferences=None, path=None, persist=True):
+    """Open the app preferences window and wait until it is closed.
+
+    A supplied preferences dict is copied for editing and updated in place on
+    Save. ``path`` selects the file to read/write; ``persist=False`` keeps an
+    injected dict in memory only.
+    """
+    source = preferences
+    preferences = deepcopy(source) if source is not None else load_preferences(path)
 
     window = tk.Toplevel(parent)
     window.title("DeskCard - Preferences")
@@ -367,9 +375,18 @@ def show_preferences(parent):
             try:
                 value = int(variable.get())
             except (tk.TclError, ValueError):
-                continue
+                messagebox.showerror(
+                    "Invalid score change",
+                    f"{grade.capitalize()} must be a whole number.",
+                    parent=window,
+                )
+                return
             preferences["score_deltas"][grade] = max(-100, min(100, value))
-        save_preferences(preferences)
+        if persist:
+            save_preferences(preferences, path)
+        if source is not None:
+            source.clear()
+            source.update(preferences)
         window.destroy()
 
     tip(tk.Button(actions, text="Cancel", command=window.destroy, width=10),
@@ -388,5 +405,8 @@ def show_preferences(parent):
     x = parent.winfo_rootx() + (parent.winfo_width() - window.winfo_width()) // 2
     y = parent.winfo_rooty() + (parent.winfo_height() - window.winfo_height()) // 2
     window.geometry(f"+{x}+{y}")
-    window.grab_set()
+    try:
+        window.grab_set()
+    except tk.TclError:  # another window may already hold the grab
+        pass
     parent.wait_window(window)

@@ -54,6 +54,11 @@ _TIME_RE = re.compile(r"^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$")
 _SCORE_RE = re.compile(r"^(\d+)(?:-(\d+))?$")
 _INT_RE = re.compile(r"^\d+$")
 
+
+def _normalize_spaces(value: str | None) -> str | None:
+    """Treat a no-break space as the ordinary space exercises compare on."""
+    return value.replace("\u00a0", " ") if value else value
+
 # Defaults mirror the schema in src/ui/loader.py. A settings file may omit
 # fields; these keep the engine usable without a full settings file.
 _GLOBAL_DEFAULTS = {"delay": "1m", "session": "", "batch": "1", "jitter": "0"}
@@ -574,8 +579,8 @@ class Session:
         def build(face: Any, side: str) -> FaceSpec:
             prefix = f"{label}/{side}"
             return FaceSpec(
-                text=face.text,
-                sub=face.sub,
+                text=_normalize_spaces(face.text),
+                sub=_normalize_spaces(face.sub),
                 audio=self._media_path(face.audio, f"{prefix}/audio", warnings),
                 image=self._media_path(face.image, f"{prefix}/image", warnings),
             )
@@ -634,22 +639,32 @@ class Session:
         global_ = self.settings.global_
         limit = None if global_.batches is None else global_.batches * global_.batch_size
         shown = 0
+        in_batch = 0
         while True:
             if limit is not None and shown >= limit:
                 return
             remaining = None if limit is None else limit - shown
             presentation = self._next_presentation(remaining)
             if presentation is None:
-                message = "session ended early: not enough playable cards"
-                if limit is not None and shown < limit and message not in self.warnings:
-                    self.warnings.append(message)
+                # A Connect group needs at least two cards; a leftover single
+                # draw is expected, not a failed session.
+                if not self._only_short_connect_left():
+                    message = "session ended early: not enough playable cards"
+                    if limit is not None and shown < limit and message not in self.warnings:
+                        self.warnings.append(message)
                 return
-            # Batches count cards, not presentations; Connect shows several
-            # cards at once. Fetching first also avoids a delay after the end.
-            if shown % global_.batch_size == 0:
+            # A Connect round consumes a whole batch even though it shows
+            # several cards. Fetching first avoids a delay after the end.
+            if in_batch == 0 or presentation.exercise == "connect":
                 yield Delay(self._delay_seconds())
             yield presentation
             shown += len(presentation.card_ids)
+            if presentation.exercise == "connect":
+                in_batch = 0
+            else:
+                in_batch += len(presentation.card_ids)
+                if in_batch >= global_.batch_size:
+                    in_batch = 0
 
     def __iter__(self) -> Iterator[Delay | Presentation]:
         return self.presentations()
@@ -663,12 +678,25 @@ class Session:
         high = math.floor(delay * (100 + jitter) / 100)
         return self.rng.randint(low, max(low, high))
 
+    def _only_short_connect_left(self) -> bool:
+        """Whether the only cards left cannot form another Connect group."""
+        return bool(self._pools) and all(
+            pool.settings.name == "connect" and len(pool.draws) < 2
+            for pool in self._pools
+        )
+
     def _next_presentation(self, remaining: int | None = None) -> Presentation | None:
         while self._pools:
             pool = self._pools[self._cursor % len(self._pools)]
             self._cursor += 1
             if not pool.draws:
                 self._pools.remove(pool)
+                continue
+            if pool.settings.name == "connect" and len(pool.draws) < 2:
+                # Keep the last draw for write-back; a lone prompt cannot form
+                # a Connect group, so try another pool or end quietly.
+                if self._only_short_connect_left():
+                    return None
                 continue
             draw = pool.draws.pop(0)
             card = self.config.card(draw.card_id)
@@ -751,7 +779,9 @@ class Session:
     def _choices(self, exercise: ExerciseSettings, card: CardRecord,
                  direction: str, answer: str) -> tuple[tuple[str, ...], int] | None:
         others = [
-            other.back.text if direction == "normal" else other.front.text
+            _normalize_spaces(
+                other.back.text if direction == "normal" else other.front.text
+            )
             for other in self.config.cards.values()
             if other.key != card.key and self.config.categories[other.category].enabled
         ]
@@ -771,17 +801,18 @@ class Session:
         if pool is None:
             return None
         available = len(pool.draws) + 1  # the current draw is already popped
-        wanted = min(exercise.answer_connections, available)
+        max_pairs = exercise.answer_connections
         if allowance is not None:
-            wanted = min(wanted, allowance)
+            max_pairs = min(max_pairs, allowance)
+        wanted = min(max_pairs, available)
         if wanted < 2:
             return None
         if available - wanted == 1:
             # Leave no orphaned card: either shrink this group to leave two,
-            # or absorb the stray card when the allowance permits it.
+            # or absorb the stray card when both limits permit it.
             if wanted - 1 >= 2:
                 wanted -= 1
-            elif allowance is None or allowance > wanted:
+            elif wanted + 1 <= max_pairs:
                 wanted += 1
         used = [draw]
         all_warnings = list(warnings)

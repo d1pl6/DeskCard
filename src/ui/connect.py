@@ -351,9 +351,27 @@ class Application:
         self._reset()
         self._sync_state()
 
+    def show_retry(self):
+        """Keep the revealed pairs visible during the retry feedback delay."""
+        self.locked = True
+        self._sync_state()
+
     def retry(self):
         """Show the same pairs again for another attempt."""
         self._reset()
+        self._sync_state()
+
+    def reveal_timeout(self):
+        """Show the correct pairs when the answer timer expires."""
+        self.pairs = {}
+        self.reverse = {}
+        self.pair_color = {}
+        for left in range(len(self.card.pairs)):
+            self._pair(left, self.right_order.index(left))
+        self.correct_count = len(self.card.pairs)
+        self.reveal_correct = False
+        self.revealed = True
+        self.locked = True
         self._sync_state()
 
     def on_skip(self):
@@ -365,7 +383,6 @@ class Application:
     def on_quit(self, event=None):
         if self.locked:
             return
-        self.locked = True
         self._on_quit()
 
     def freeze(self, message):
@@ -763,7 +780,6 @@ class Application:
             self._canvas.create_line(
                 x1, y1, x2, y2, fill=color, width=3, smooth=True,
                 capstyle=tk.ROUND, tags=("connect_line",))
-        self._canvas.tag_raise(self._content_window)
 
 
 def main():

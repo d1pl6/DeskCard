@@ -48,6 +48,32 @@ def write_deck(directory):
     return path
 
 
+def write_simple_deck(directory, count):
+    """A deck with `count` text-only cards in one enabled category."""
+    cards = {
+        str(index): {"front": {"text": f"f{index}"}, "back": {"text": f"b{index}"}}
+        for index in range(1, count + 1)
+    }
+    path = Path(directory) / "deck.json"
+    path.write_text(json.dumps({"c": {"enabled": True, **cards}}), encoding="utf-8")
+    return path
+
+
+def connect_settings(connections, batch="1", session=""):
+    data = settings()
+    data["exercises"]["anki"]["enabled"] = False
+    data["global"].update({"batch": batch, "session": session})
+    data["exercises"]["connect"] = {
+        "enabled": True,
+        "settings": {
+            "prompt_type": ["text_only"],
+            "answer_prompt": ["text_only"],
+            "answer_connections": str(connections),
+        },
+    }
+    return data
+
+
 def settings(**overrides):
     base = {
         "global": {"delay": "0", "session": "", "batch": "1", "jitter": "0"},
@@ -127,6 +153,53 @@ class SessionTests(unittest.TestCase):
             [type(event).__name__ for event in events],
             ["Delay", "Presentation", "Delay", "Presentation"],
         )
+
+    def test_connect_group_respects_connection_limit(self):
+        session = Session(
+            load_config(write_simple_deck(tempfile.mkdtemp(), 3)),
+            connect_settings(2), rng=random.Random(1), save_categories=False,
+        )
+        sizes = [len(event.card_ids) for event in session
+                 if hasattr(event, "card_ids")]
+        self.assertEqual(sizes, [2])
+
+    def test_connect_gets_delay_per_round(self):
+        session = Session(
+            load_config(write_simple_deck(tempfile.mkdtemp(), 6)),
+            connect_settings(3, batch="2"), rng=random.Random(1),
+            save_categories=False,
+        )
+        shapes = [
+            type(event).__name__ + (f":{len(event.card_ids)}"
+                                    if hasattr(event, "card_ids") else "")
+            for event in session
+        ]
+        self.assertEqual(shapes, ["Delay", "Presentation:3",
+                                  "Delay", "Presentation:3"])
+        self.assertEqual(session.warnings, [])
+
+    def test_connect_leftover_does_not_warn(self):
+        session = Session(
+            load_config(write_simple_deck(tempfile.mkdtemp(), 5)),
+            connect_settings(3, batch="2", session="2"),
+            rng=random.Random(1), save_categories=False,
+        )
+        list(session)
+        self.assertEqual(session.warnings, [])
+
+    def test_no_break_space_is_an_ordinary_space(self):
+        directory = tempfile.mkdtemp()
+        path = Path(directory) / "deck.json"
+        path.write_text(json.dumps({
+            "c": {"enabled": True,
+                  "one": {"front": {"text": "\u00a0"}, "back": {"text": "b"}}},
+        }), encoding="utf-8")
+        session = Session(
+            load_config(path), settings(), rng=random.Random(1),
+            save_categories=False,
+        )
+        presentation = next(event for event in session if hasattr(event, "spec"))
+        self.assertEqual(presentation.spec.front.text, " ")
 
     def test_result_updates_and_saves_deck(self):
         path = write_deck(tempfile.mkdtemp())

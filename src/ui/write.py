@@ -196,8 +196,6 @@ class Application:
 
     def show_retry(self):
         """Show a brief wrong-answer sheet without giving away the answer."""
-        if self.revealed:
-            return
         self.revealed = True
         self.reveal_correct = False
         self._retry_feedback = True
@@ -222,7 +220,6 @@ class Application:
     def on_quit(self, event=None):
         if self.locked:
             return
-        self.locked = True
         self._on_quit()
 
     def auto_play(self):

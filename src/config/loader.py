@@ -211,8 +211,8 @@ def load_config(path: str | Path) -> Config:
     """Read, parse, and validate a config file; see :class:`Config`."""
     file_path = Path(path)
     try:
-        text = file_path.read_text(encoding="utf-8")
-    except OSError as exc:
+        text = file_path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as exc:
         raise ConfigError(f"cannot read {file_path}: {exc}") from exc
     try:
         tree = json.loads(_strip_comments(text))
@@ -231,7 +231,7 @@ def load_config(path: str | Path) -> Config:
         for name, category in categories.items()
         if not category.enabled
     }
-    return Config(file_path, tree, categories, cards, warnings, disabled)
+    return Config(file_path.resolve(), tree, categories, cards, warnings, disabled)
 
 
 def save_config(config: Config, path: str | Path | None = None) -> None:
@@ -296,10 +296,10 @@ def _load_cards(
             if not isinstance(data, dict):
                 warnings.append(f"{label}: card is not an object, skipping")
                 continue
-            if not _validate_card(label, data, warnings, media_base):
-                continue
             if key in cards:
                 warnings.append(f"{label}: duplicate card id, skipping the second one")
+                continue
+            if not _validate_card(label, data, warnings, media_base):
                 continue
             cards[key] = CardRecord(category.name, key, data)
     return cards
@@ -310,9 +310,9 @@ def _validate_card(
 ) -> bool:
     """front/back each need text, or audio, or image.
 
-    v1 exercises are text-only, so a card without text stays valid but earns
-    a warning; selection must skip it later. Media paths are checked against
-    ``media_base`` and reported when the file is missing.
+    A face without text stays valid but warns, because text-requesting
+    exercises will skip that card; audio/image modes can still use it. Media
+    paths are checked against ``media_base`` and reported when missing.
     """
     front = data.get("front")
     back = data.get("back")
@@ -346,11 +346,13 @@ def _validate_face(
     if _missing_media(face):
         warnings.append(f"{prefix}: has neither text, audio nor image, skipping the card")
         return False
-    if _opt_str(face, "text") is None:
-        if answer:
-            warnings.append(f"{prefix}: no text; the answer cannot be shown in v1 exercises")
-        else:
-            warnings.append(f"{prefix}: no text; card cannot be used by the text-only exercises")
+    text = _opt_str(face, "text")
+    if text is None:
+        warnings.append(f"{prefix}: no text; text-requesting exercises will skip this card")
+    elif text.replace("\u00a0", "x").strip() == "":
+        warnings.append(
+            f"{prefix}/text: only spaces; use a no-break space if this blank is intentional"
+        )
     for field in ("text", "sub", "audio", "image"):
         if field in face and not isinstance(face[field], str):
             warnings.append(f"{prefix}/{field}: must be a string")
